@@ -47,7 +47,15 @@ if (!isServerless) {
   };
 }
 
-app.use(cors());
+// Configure CORS to specifically allow requests from the frontend application
+const corsOptions = {
+  origin: ['https://gdmhrms.vercel.app', 'http://localhost:3000', 'http://localhost:5173'],
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true,
+  optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
+
 app.use(helmet());
 app.use(compression());
 app.use(morgan("combined", { stream: accessLogStream }));
