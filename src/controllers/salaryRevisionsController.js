@@ -1,25 +1,38 @@
 const { successResponse, errorRresponse } = require("../utils/response");
 const SalaryRevisions = require("../models/salaryRevisions");
+const Employee = require("../models/employee");
+const mongoose = require("mongoose");
 
 const createRecord = async (req, res) => {
-  // console.log(req.body, "req . body");
+  console.log(req.body, "req . body");
   try {
-    const { employment, effectiveDate, previousSalary, salary, description } =
-      req.body;
-    console.log(req.body, "SalaryRevisions  req Record");
+    const {
+      name,
+      employment, // This is the user_defined_code
+      effectiveDate,
+      previousSalary,
+      salary,
+      description,
+    } = req.body;
+    console.log(req.body, "SalaryRevisions req Record");
 
-    // const isExist = await SalaryRevisions.findOne({
-    //   user_defined_code,
-    // });
+    // Convert employment code to number and find employee
+    const employeeCode = Number(employment);
+    if (isNaN(employeeCode)) {
+      return errorRresponse(res, 400, "Invalid employee code");
+    }
 
-    // console.log({ isExist });
+    const employee = await Employee.findOne({
+      user_defined_code: employeeCode,
+    });
+    if (!employee) {
+      return errorRresponse(res, 404, "Employee not found");
+    }
 
-    // if (isExist) {
-    //   return errorRresponse(res, 400, "Employee already exists");
-    // }
-
+    // Create a new salary revision record
     const data = new SalaryRevisions({
-      employment,
+      name,
+      employment: employee._id, // Now correctly using the string _id
       effectiveDate,
       previousSalary,
       salary,
@@ -35,83 +48,6 @@ const createRecord = async (req, res) => {
     return errorRresponse(res, 500, "Error Creating Record", error);
   }
 };
-
-// const updateRecord = async (req, res) => {
-//   try {
-//     const {
-//       first_name,
-//       last_name,
-//       father_or_husband_name,
-//       salutation,
-//       d_o_b,
-//       mobile_no,
-//       cnic_no,
-//       nationality,
-//       gender,
-//       user_defined_code,
-//       joining_date,
-//       probation,
-//       location,
-//       department,
-//       designation,
-//       job_title,
-//       official_email,
-//       employee_type,
-//       employment_type,
-//       email_username,
-//       password,
-//       role,
-//       timeSlot,
-//       leaveTypes,
-//     } = req.body;
-
-//     const { id } = req.params;
-
-//     const existing = await Employee.findById(id);
-//     if (!existing) {
-//       return errorRresponse(res, 404, "Employee Not Found");
-//     }
-
-//     let hashedPassword = existing.password;
-//     if (password) {
-//       hashedPassword = await bcrypt.hash(password, 10);
-//     }
-//     const data = await Employee.findByIdAndUpdate(
-//       id,
-//       {
-//         first_name,
-//         last_name,
-//         father_or_husband_name,
-//         salutation,
-//         d_o_b,
-//         mobile_no,
-//         cnic_no,
-//         nationality,
-//         gender,
-//         user_defined_code,
-//         joining_date,
-//         probation,
-//         location,
-//         department,
-//         designation,
-//         job_title,
-//         official_email,
-//         employee_type,
-//         employment_type,
-//         email_username,
-//         password: hashedPassword,
-//         role,
-//         timeSlot,
-//         leaveTypes,
-//       },
-//       { new: true }
-//     );
-//     return successResponse(res, 201, "Data Updated Successfully", data);
-//   } catch (error) {
-//     console.error("Error updating data:", error);
-//     return errorRresponse(res, 500, "Error updating Data", error);
-//   }
-// };
 
 const getRecords = async (req, res) => {
   try {
@@ -132,20 +68,17 @@ const getRecords = async (req, res) => {
 
     const searchQuery = search
       ? {
-          $or: [
-            { first_name: { $regex: search, $options: "i" } },
-            { last_name: { $regex: search, $options: "i" } },
-          ],
+          name: { $regex: search, $options: "i" }, // "i" makes it case-insensitive
         }
       : {};
 
-    // console.log({ searchQuery });
-    const data = await SalaryRevisions.find()
+    console.log({ searchQuery });
+    const data = await SalaryRevisions.find(searchQuery)
       .populate("employment")
       .sort(sortOptions)
       .skip((page - 1) * perPage)
       .limit(perPage);
-
+    console.log(data);
     const totalRecords = await SalaryRevisions.countDocuments();
 
     return successResponse(res, 200, "Data Fetched Successfully", {

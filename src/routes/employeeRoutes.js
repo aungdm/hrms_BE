@@ -7,6 +7,7 @@ const {
   updateRecord,
   deleteRecord,
   searchRecords,
+  updateSalaryRecord,
 } = require("../controllers/employeeController");
 
 router.post("/create", createRecord);
@@ -15,5 +16,6 @@ router.get("/get", getRecords);
 router.get("/search", searchRecords);
 router.delete("/delete/:id", deleteRecord);
 router.get("/get/:id", getRecord);
+router.patch("/update/:id", updateSalaryRecord);
 
 module.exports = router;

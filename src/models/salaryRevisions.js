@@ -3,6 +3,10 @@ const Employee = require("./employee");
 
 const SalaryRevisionsSchema = new mongoose.Schema(
   {
+    name: {
+      type: String,
+      required: true,
+    },
     effectiveDate: {
       type: Date,
       required: true,
@@ -18,7 +22,7 @@ const SalaryRevisionsSchema = new mongoose.Schema(
       trim: true,
     },
     employment: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "Employee",
       required: true,
     },

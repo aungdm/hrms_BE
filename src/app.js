@@ -12,6 +12,9 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 
+// Import startup sequence instead of directly importing the job scheduler
+const { initializeStartupSequence } = require('./jobs/startupSequence');
+
 const accessLogStream = fs.createWriteStream(
   path.join(__dirname, "logs", "access.log"),
   {
@@ -33,7 +36,19 @@ connectDB();
 
 app.use("/api/v1/employee", require("./routes/employeeRoutes"));
 app.use("/api/v1/salaryRevisions", require("./routes/salaryRevisionsRoutes"));
+app.use("/api/v1/attendanceLogs", require("./routes/attendanceLogsRoutes"));
+app.use("/api/v1/timeSheet", require("./routes/timeSheetRoutes"));
+app.use("/api/v1/dailyAttendance", require("./routes/dailyAttendanceRoutes"));
+app.use("/api/v1/workSchedule", require("./routes/workScheduleRoutes"));
+app.use("/api/v1/leave", require("./routes/leaveRoutes"));
+app.use("/api/v1/punch", require("./routes/punchRoutes"));
+
+
+
 
 app.use(errorHandler);
+
+// Initialize the startup sequence instead of directly scheduling the job
+initializeStartupSequence();
 
 module.exports = app;

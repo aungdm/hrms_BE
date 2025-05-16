@@ -36,6 +36,7 @@ const createRecord = async (req, res) => {
       role,
       timeSlot,
       leaveTypes,
+      _id, // Extract custom _id if provided
     } = req.body;
     console.log(req.body, "cre  ateRecord");
 
@@ -50,7 +51,8 @@ const createRecord = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const data = new Employee({
+    // Create employee object with all the fields
+    const employeeData = {
       name,
       father_or_husband_name,
       salutation,
@@ -81,7 +83,14 @@ const createRecord = async (req, res) => {
       role,
       timeSlot,
       leaveTypes,
-    });
+    };
+
+    // Add _id if provided from client
+    if (_id) {
+      employeeData._id = _id;
+    }
+
+    const data = new Employee(employeeData);
     console.log({ data }, "createRecord");
 
     await data.save();
@@ -96,8 +105,7 @@ const createRecord = async (req, res) => {
 const updateRecord = async (req, res) => {
   try {
     const {
-      first_name,
-      last_name,
+      name,
       father_or_husband_name,
       salutation,
       d_o_b,
@@ -114,6 +122,13 @@ const updateRecord = async (req, res) => {
       job_title,
       official_email,
       employee_type,
+      payroll,
+      payroll_type,
+      payment_method,
+      currency,
+      probation_salary,
+      after_probation_gross_salary,
+      description,
       employment_type,
       email_username,
       password,
@@ -133,36 +148,44 @@ const updateRecord = async (req, res) => {
     if (password) {
       hashedPassword = await bcrypt.hash(password, 10);
     }
-    const data = await Employee.findByIdAndUpdate(
-      id,
-      {
-        first_name,
-        last_name,
-        father_or_husband_name,
-        salutation,
-        d_o_b,
-        mobile_no,
-        cnic_no,
-        nationality,
-        gender,
-        user_defined_code,
-        joining_date,
-        probation,
-        location,
-        department,
-        designation,
-        job_title,
-        official_email,
-        employee_type,
-        employment_type,
-        email_username,
-        password: hashedPassword,
-        role,
-        timeSlot,
-        leaveTypes,
-      },
-      { new: true }
-    );
+
+    // Create update object with all fields
+    const updateData = {
+      name,
+      father_or_husband_name,
+      salutation,
+      d_o_b,
+      mobile_no,
+      cnic_no,
+      nationality,
+      gender,
+      user_defined_code,
+      joining_date,
+      probation,
+      location,
+      department,
+      designation,
+      job_title,
+      official_email,
+      employee_type,
+      payroll,
+      payroll_type,
+      payment_method,
+      currency,
+      probation_salary,
+      after_probation_gross_salary,
+      description,
+      employment_type,
+      email_username,
+      password: hashedPassword,
+      role,
+      timeSlot,
+      leaveTypes,
+    };
+
+    const data = await Employee.findByIdAndUpdate(id, updateData, {
+      new: true,
+    });
     return successResponse(res, 201, "Data Updated Successfully", data);
   } catch (error) {
     console.error("Error updating data:", error);
@@ -174,32 +197,39 @@ const getRecords = async (req, res) => {
   try {
     let {
       page = 1,
-      perPage = 10,
+      perPage = 5,
       sortOrder = "Desc",
-      sortField = "created_at",
+      sortField = "createdAt",
       search = "",
     } = req.query;
 
-    page = parseInt(page, 10);
-    perPage = parseInt(perPage, 10);
+    page = parseInt(page);
+    perPage = parseInt(perPage);
 
+    console.log({ page, perPage });
     const sortOptions = {
-      [sortField]: sortOrder.toLowerCase() === "desc" ? -1 : 1,
+      [sortField]: sortOrder  === "Desc" ? -1 : 1,
     };
 
     const searchQuery = search
       ? {
-          name: search,
+          name: { $regex: search, $options: "i" },
         }
       : {};
+    const skips = (page - 1) * perPage;
 
-    console.log({ searchQuery });
+    console.log(
+      { searchQuery },
+      { page, perPage, sortOrder, sortField, skips ,sortOptions}
+    );
     const data = await Employee.find(searchQuery)
       .sort(sortOptions)
-      .skip((page - 1) * perPage)
+      .skip(skips)
       .limit(perPage);
 
     const totalRecords = await Employee.countDocuments();
+    const dataList = data.map((item) => item._id);
+    // console.log({ dataList });
 
     return successResponse(res, 200, "Data Fetched Successfully", {
       data: data,
@@ -264,6 +294,33 @@ const searchRecords = async (req, res) => {
   }
 };
 
+const updateSalaryRecord = async (req, res) => {
+  try {
+    const updateFields = req.body;
+
+    const { id } = req.params;
+
+    const existing = await Employee.findById(id);
+    if (!existing) {
+      return errorRresponse(res, 404, "Employee Not Found");
+    }
+
+    const data = await Employee.findByIdAndUpdate(
+      id,
+      { $set: updateFields },
+      { new: true, runValidators: true }
+    );
+
+    if (!data) {
+      return errorRresponse(res, 404, "Employee Not Found");
+    }
+    return successResponse(res, 200, "Data Updated Successfully", data);
+  } catch (error) {
+    console.error("Error updating data:", error);
+    return errorRresponse(res, 500, "Error updating Data", error);
+  }
+};
+
 module.exports = {
   createRecord,
   getRecords,
@@ -271,4 +328,5 @@ module.exports = {
   updateRecord,
   deleteRecord,
   searchRecords,
+  updateSalaryRecord,
 };
