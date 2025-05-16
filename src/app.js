@@ -90,7 +90,7 @@ app.use(errorHandler);
 if (!isServerless) {
   initializeStartupSequence();
 } else {
-  console.log("Running in serverless environment - startup sequence skipped");
+  console.log("Running inn serverless environment - startup sequence skipped");
 }
 
 module.exports = app;
