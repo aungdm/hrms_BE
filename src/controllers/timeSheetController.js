@@ -1,6 +1,6 @@
 const { successResponse, errorRresponse } = require("../utils/response");
 const Employee = require("../models/employee");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 
 const createRecord = async (req, res) => {
   // console.log(req.body, "req . body");
