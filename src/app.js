@@ -13,39 +13,39 @@ const path = require("path");
 require("dotenv").config();
 
 // Import startup sequence instead of directly importing the job scheduler
-const { initializeStartupSequence } = require('./jobs/startupSequence');
+// const { initializeStartupSequence } = require('./jobs/startupSequence');
 
 // For serverless environments, use in-memory logging instead of file system
 const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
-let accessLogStream;
+// let accessLogStream;
 
-if (!isServerless) {
-  try {
-    // Ensure logs directory exists
-    const logDir = path.join(__dirname, "logs");
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
-    }
+// if (!isServerless) {
+//   try {
+//     // Ensure logs directory exists
+//     const logDir = path.join(__dirname, "logs");
+//     if (!fs.existsSync(logDir)) {
+//       fs.mkdirSync(logDir, { recursive: true });
+//     }
     
-    accessLogStream = fs.createWriteStream(
-      path.join(logDir, "access.log"),
-      {
-        flags: "a",
-      }
-    );
-  } catch (error) {
-    console.error("Error setting up log file:", error);
-    // Fallback to console logging
-    accessLogStream = {
-      write: (message) => console.log(message)
-    };
-  }
-} else {
-  // Use console logging in serverless environment
-  accessLogStream = {
-    write: (message) => console.log(message)
-  };
-}
+//     accessLogStream = fs.createWriteStream(
+//       path.join(logDir, "access.log"),
+//       {
+//         flags: "a",
+//       }
+//     );
+//   } catch (error) {
+//     console.error("Error setting up log file:", error);
+//     // Fallback to console logging
+//     accessLogStream = {
+//       write: (message) => console.log(message)
+//     };
+//   }
+// } else {
+//   // Use console logging in serverless environment
+//   accessLogStream = {
+//     write: (message) => console.log(message)
+//   };
+// }
 
 // Configure CORS to specifically allow requests from the frontend application
 const corsOptions = {
@@ -87,10 +87,10 @@ app.get("/api/health", (req, res) => {
 app.use(errorHandler);
 
 // Initialize the startup sequence only in non-serverless environments
-if (!isServerless) {
-  initializeStartupSequence();
-} else {
-  console.log("Running inn serverless environment - startup sequence skipped");
-}
+// if (!isServerless) {
+//   initializeStartupSequence();
+// } else {
+//   console.log("Running inn serverless environment - startup sequence skipped");
+// }
 
 module.exports = app;
