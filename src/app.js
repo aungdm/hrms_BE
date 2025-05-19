@@ -81,13 +81,13 @@ connectDB();
 
 // Define all routes
 app.use("/api/v1/employee", require("./routes/employeeRoutes"));
-app.use("/api/v1/salaryRevisions", require("./routes/salaryRevisionsRoutes"));
-app.use("/api/v1/attendanceLogs", require("./routes/attendanceLogsRoutes"));
-app.use("/api/v1/timeSheet", require("./routes/timeSheetRoutes"));
-app.use("/api/v1/dailyAttendance", require("./routes/dailyAttendanceRoutes"));
-app.use("/api/v1/workSchedule", require("./routes/workScheduleRoutes"));
-app.use("/api/v1/leave", require("./routes/leaveRoutes"));
-app.use("/api/v1/punch", require("./routes/punchRoutes"));
+// app.use("/api/v1/salaryRevisions", require("./routes/salaryRevisionsRoutes"));
+// app.use("/api/v1/attendanceLogs", require("./routes/attendanceLogsRoutes"));
+// app.use("/api/v1/timeSheet", require("./routes/timeSheetRoutes"));
+// app.use("/api/v1/dailyAttendance", require("./routes/dailyAttendanceRoutes"));
+// app.use("/api/v1/workSchedule", require("./routes/workScheduleRoutes"));
+// app.use("/api/v1/leave", require("./routes/leaveRoutes"));
+// app.use("/api/v1/punch", require("./routes/punchRoutes"));
 
 // Add a health check route for Vercel
 // app.get("/api/health", (req, res) => {
