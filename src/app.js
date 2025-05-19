@@ -82,7 +82,7 @@ connectDB();
 // Define all routes
 app.use("/api/v1/employee", require("./routes/employeeRoutes"));
 app.use("/api/v1/salaryRevisions", require("./routes/salaryRevisionsRoutes"));
-// app.use("/api/v1/attendanceLogs", require("./routes/attendanceLogsRoutes"));
+app.use("/api/v1/attendanceLogs", require("./routes/attendanceLogsRoutes"));
 // app.use("/api/v1/timeSheet", require("./routes/timeSheetRoutes"));
 // app.use("/api/v1/dailyAttendance", require("./routes/dailyAttendanceRoutes"));
 app.use("/api/v1/workSchedule", require("./routes/workScheduleRoutes"));
