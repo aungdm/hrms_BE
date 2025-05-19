@@ -69,7 +69,7 @@ app.use(
 app.options("*", cors());
 app.use(helmet());
 app.use(compression());
-app.use(morgan("combined", { stream: accessLogStream }));
+// app.use(morgan("combined", { stream: accessLogStream }));
 app.use(morgan("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
