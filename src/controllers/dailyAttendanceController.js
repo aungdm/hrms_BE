@@ -1,20 +1,20 @@
 const { successResponse, errorRresponse } = require("../utils/response");
 const DailyAttendance = require("../models/dailyAttendance");
-const { processAttendanceLogs } = require("../utils/attendanceProcessor");
+// const { processAttendanceLogs } = require("../utils/attendanceProcessor");
 const cron = require("node-cron");
 const moment = require("moment");
 
 // Schedule to run the processor every day at midnight
-cron.schedule("0 0 * * *", async () => {
-  try {
-    console.log("Running scheduled attendance processing job");
-    // Process yesterday's logs
-    const yesterday = moment().subtract(1, "day").toDate();
-    await processAttendanceLogs(yesterday, yesterday);
-  } catch (error) {
-    console.error("Error in scheduled attendance processing:", error);
-  }
-});
+// cron.schedule("0 0 * * *", async () => {
+//   try {
+//     console.log("Running scheduled attendance processing job");
+//     // Process yesterday's logs
+//     const yesterday = moment().subtract(1, "day").toDate();
+//     await processAttendanceLogs(yesterday, yesterday);
+//   } catch (error) {
+//     console.error("Error in scheduled attendance processing:", error);
+//   }
+// });
 
 // Process attendance logs manually
 const processLogs = async (req, res) => {
@@ -40,15 +40,15 @@ const processLogs = async (req, res) => {
     }
 
     // Process in the background
-    processAttendanceLogs(startDate, endDate, employeeIds)
-      .then((results) => {
-        console.log(
-          `Processing completed: ${results.processed} logs processed, ${results.created} records created, ${results.updated} records updated`
-        );
-      })
-      .catch((err) => {
-        console.error("Error in background processing:", err);
-      });
+    // processAttendanceLogs(startDate, endDate, employeeIds)
+    //   .then((results) => {
+    //     console.log(
+    //       `Processing completed: ${results.processed} logs processed, ${results.created} records created, ${results.updated} records updated`
+    //     );
+    //   })
+    //   .catch((err) => {
+    //     console.error("Error in background processing:", err);
+    //   });
 
     return successResponse(
       res,
