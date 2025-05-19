@@ -16,7 +16,7 @@ require("dotenv").config();
 // const { initializeStartupSequence } = require('./jobs/startupSequence');
 
 // For serverless environments, use in-memory logging instead of file system
-// const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
 // let accessLogStream;
 
 // if (!isServerless) {
@@ -90,16 +90,13 @@ app.use("/api/v1/leave", require("./routes/leaveRoutes"));
 app.use("/api/v1/punch", require("./routes/punchRoutes"));
 
 // Add a health check route for Vercel
-// app.get("/api/health", (req, res) => {
-//   res.status(200).json({ status: "ok", environment: isServerless ? "serverless" : "server" });
-// });
+app.get("/api/health", (req, res) => {
+  res.status(200).json({ status: "ok", environment: isServerless ? "serverless" : "server" });
+});
 
 // Error handler should be after all routes
 app.use(errorHandler);
 
-app.get("/", (req, res) => {
-  res.status(200).json({ status: "ok" });
-});
 // Initialize the startup sequence only in non-serverless environments
 // if (!isServerless) {
 //   initializeStartupSequence();
