@@ -48,14 +48,24 @@ const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
 // }
 
 // Configure CORS to specifically allow requests from the frontend application
-const corsOptions = {
-  origin: ['https://gdmhrms.vercel.app', 'http://localhost:3000', 'http://localhost:5173'],
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  credentials: true,
-  optionsSuccessStatus: 204
-};
-app.use(cors(corsOptions));
+// const corsOptions = {
+//   origin: ['https://gdmhrms.vercel.app', 'http://localhost:3000', 'http://localhost:5173'],
+//   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+//   credentials: true,
+//   optionsSuccessStatus: 204
+// };
+// app.use(cors(corsOptions));
 
+
+app.use(cors({
+  origin: 'https://gdmhrms.vercel.app',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-current-language'],
+  credentials: true,
+}));
+
+// Optional: Handle OPTIONS explicitly (if needed)
+app.options('*', cors());
 app.use(helmet());
 app.use(compression());
 app.use(morgan("combined", { stream: accessLogStream }));
