@@ -3,7 +3,7 @@ const Employee = require("../models/employee");
 const bcrypt = require("bcryptjs");
 
 const createRecord = async (req, res) => {
-  // console.log(req.body, "req . body");
+  console.log(req.body, "req . body");
   try {
     const {
       name,
@@ -36,6 +36,7 @@ const createRecord = async (req, res) => {
       role,
       timeSlot,
       leaveTypes,
+      workDays,
       _id, // Extract custom _id if provided
     } = req.body;
     console.log(req.body, "cre  ateRecord");
@@ -83,6 +84,7 @@ const createRecord = async (req, res) => {
       role,
       timeSlot,
       leaveTypes,
+      workDays,
     };
 
     // Add _id if provided from client
@@ -90,6 +92,7 @@ const createRecord = async (req, res) => {
       employeeData._id = _id;
     }
 
+    console.log({ employeeData }, "creat e  Record");
     const data = new Employee(employeeData);
     console.log({ data }, "createRecord");
 
@@ -103,6 +106,7 @@ const createRecord = async (req, res) => {
 };
 
 const updateRecord = async (req, res) => {
+  console.log(req.body, "updateRecord");
   try {
     const {
       name,
@@ -135,6 +139,7 @@ const updateRecord = async (req, res) => {
       role,
       timeSlot,
       leaveTypes,
+      workDays,
     } = req.body;
 
     const { id } = req.params;
@@ -181,11 +186,13 @@ const updateRecord = async (req, res) => {
       role,
       timeSlot,
       leaveTypes,
+      workDays,
     };
-
+    console.log({ updateData }, "updateRecord");
     const data = await Employee.findByIdAndUpdate(id, updateData, {
       new: true,
     });
+    console.log({ data }, "updateRecord");
     return successResponse(res, 201, "Data Updated Successfully", data);
   } catch (error) {
     console.error("Error updating data:", error);
@@ -208,7 +215,7 @@ const getRecords = async (req, res) => {
 
     console.log({ page, perPage });
     const sortOptions = {
-      [sortField]: sortOrder  === "Desc" ? -1 : 1,
+      [sortField]: sortOrder === "Desc" ? -1 : 1,
     };
 
     const searchQuery = search
@@ -220,7 +227,7 @@ const getRecords = async (req, res) => {
 
     console.log(
       { searchQuery },
-      { page, perPage, sortOrder, sortField, skips ,sortOptions}
+      { page, perPage, sortOrder, sortField, skips, sortOptions }
     );
     const data = await Employee.find(searchQuery)
       .sort(sortOptions)

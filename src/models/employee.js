@@ -137,6 +137,10 @@ const EmployeeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    workDays: {
+      type: [Number],
+      default: [1, 2, 3, 4, 5],
+    },
   },
   {
     timestamps: true,
