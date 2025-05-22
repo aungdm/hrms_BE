@@ -89,6 +89,8 @@ app.use("/api/v1/dailyAttendance", require("./routes/dailyAttendanceRoutes"));
 app.use("/api/v1/workSchedule", require("./routes/workScheduleRoutes"));
 app.use("/api/v1/leave", require("./routes/leaveRoutes"));
 app.use("/api/v1/punch", require("./routes/punchRoutes"));
+app.use("/api/v1/scheduling", require("./routes/schedulingRoutes"));
+app.use("/api/v1/employeeSchedule", require("./routes/employeeScheduleRoutes"));
 
 // Add a health check route for Vercel
 app.get("/api/health", (req, res) => {

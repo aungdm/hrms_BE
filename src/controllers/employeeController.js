@@ -1,6 +1,7 @@
 const { successResponse, errorRresponse } = require("../utils/response");
 const Employee = require("../models/employee");
 const bcrypt = require("bcryptjs");
+const { generateScheduleForNewEmployee } = require("./employeeScheduleController");
 
 const createRecord = async (req, res) => {
   console.log(req.body, "req . body");
@@ -98,6 +99,9 @@ const createRecord = async (req, res) => {
 
     await data.save();
 
+    // Generate schedule for the new employee
+    await generateScheduleForNewEmployee(data);
+
     return successResponse(res, 201, "Record Created Successfully", data);
   } catch (error) {
     console.error("Error creating Record:", error);
@@ -193,6 +197,12 @@ const updateRecord = async (req, res) => {
       new: true,
     });
     console.log({ data }, "updateRecord");
+
+    // If timeSlot was updated, regenerate the schedule
+    if (req.body.timeSlot) {
+      await generateScheduleForNewEmployee(data);
+    }
+
     return successResponse(res, 201, "Data Updated Successfully", data);
   } catch (error) {
     console.error("Error updating data:", error);

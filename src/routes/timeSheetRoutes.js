@@ -8,7 +8,7 @@ const {
   // deleteRecord,
   // searchRecords,
   // updateSalaryRecord,
-} = require("../controllers/timeSheetController");
+} = require("../controllers/scheduleController");
 
 router.post("/create", createRecord);
 // router.put("/update/:id", updateRecord);

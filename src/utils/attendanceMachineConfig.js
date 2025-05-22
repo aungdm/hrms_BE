@@ -13,8 +13,8 @@
 // Default configurations in case environment variables are not set
 const defaultMachines = [
   { ip: "192.168.1.128", port: 4370, timeout: 10000, name: "Machine 1" },
-  { ip: "192.168.1.129", port: 4370, timeout: 10000, name: "Machine 2" },
-  { ip: "192.168.1.130", port: 4370, timeout: 10000, name: "Machine 3" }
+  { ip: "192.168.1.101", port: 4370, timeout: 10000, name: "Machine 2" },
+  { ip: "192.168.1.102", port: 4370, timeout: 10000, name: "Machine 3" }
 ];
 
 /**

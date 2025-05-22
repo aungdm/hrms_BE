@@ -266,9 +266,9 @@ const updatePunchStatus = async (req, res) => {
     if (!updatedPunch) {
       return errorRresponse(res, 404, "Punch request not found after update");
     }
-
+    
     let attendanceUpdateMessage = "No attendance record found to update.";
-
+    
     console.log({ status }, "status");
     // If the status is "Approved", update the daily attendance record
     if (status === "Approved") {
@@ -468,7 +468,7 @@ const updatePunchStatus = async (req, res) => {
           } else if (minutesDiff > 10) {
             // More than 10 mins late
             updateData.checkoutStatus = "Late";
-          } else {
+        } else {
             updateData.checkoutStatus = "On Time";
           }
         }
@@ -529,7 +529,7 @@ const updatePunchStatus = async (req, res) => {
         const updatedRecord = await DailyAttendance.findByIdAndUpdate(
           currentPunch.attendanceId,
           { $set: updateData },
-          { new: true }
+        { new: true }
         ).populate(
           "employeeId",
           "name user_defined_code department designation"
