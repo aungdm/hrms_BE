@@ -23,15 +23,15 @@ const EmployeeScheduleSchema = new mongoose.Schema({
     {
       date: {
         type: Date,
-        required: true
+        // required: true
       },
       start: {
         type: Date,
-        required: true
+        // required: true
       },
       end: {
         type: Date,
-        required: true
+        // required: true
       },
       day_changed: {
         type: Boolean,
@@ -47,7 +47,7 @@ const EmployeeScheduleSchema = new mongoose.Schema({
       },
       actual_expected_minutes: {
         type: Number,
-        required: true
+        // required: true
       },
       notes: {
         type: String,

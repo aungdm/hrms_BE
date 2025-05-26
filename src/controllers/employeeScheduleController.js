@@ -195,8 +195,9 @@ const getAllEmployeeSchedules = async (req, res) => {
 // Update a specific day in an employee's schedule
 const updateEmployeeScheduleDay = async (req, res) => {
   try {
-    const { schedule_id, date, isDayOff, start, end, notes } = req.body;
-    
+    const { schedule_id, date, isDayOff, notes, time_slot_id} = req.body;
+    console.log({schedule_id, date, isDayOff, notes, time_slot_id}, "updateEmployeeScheduleDay")
+
     // Validate required fields
     if (!schedule_id || !date) {
       return errorRresponse(res, 400, "Schedule ID and date are required");
@@ -220,24 +221,83 @@ const updateEmployeeScheduleDay = async (req, res) => {
     // Update the day
     if (isDayOff !== undefined) {
       schedule.schedules[dayIndex].isDayOff = isDayOff;
-    }
-    
-    if (start && end) {
-      const startDate = moment(start);
-      const endDate = moment(end);
       
-      // Check if end is before start, indicating day change
-      const dayChanged = endDate.isBefore(startDate);
-      if (dayChanged) {
-        endDate.add(1, 'day');
+      // If marking as day off, clear all scheduling-related fields
+      if (isDayOff) {
+        // Keep only necessary fields for a day off
+        const dateObj = moment(date).toDate();
+        
+        // Reset all scheduling-related fields
+        schedule.schedules[dayIndex].start = null;
+        schedule.schedules[dayIndex].end = null;
+        schedule.schedules[dayIndex].day_changed = false;
+        schedule.schedules[dayIndex].is_full_overtime_shift = false;
+        schedule.schedules[dayIndex].actual_expected_minutes = 0;
+        schedule.schedules[dayIndex].time_slot_id = null;
+        
+        // Set a note if none provided
+        if (!notes) {
+          schedule.schedules[dayIndex].notes = "Day off";
+        }
+        
+        // Skip further processing since this is a day off
+        if (notes) {
+          schedule.schedules[dayIndex].notes = notes;
+        }
+        
+        await schedule.save();
+        
+        return successResponse(
+          res,
+          200,
+          "Employee schedule day marked as day off",
+          schedule
+        );
       }
-      
-      schedule.schedules[dayIndex].start = startDate.toDate();
-      schedule.schedules[dayIndex].end = endDate.toDate();
-      schedule.schedules[dayIndex].day_changed = dayChanged;
-      schedule.schedules[dayIndex].actual_expected_minutes = endDate.diff(startDate, 'minutes');
     }
     
+    // If time_slot_id is provided and it's not a day off, fetch the time slot details and use them
+    if (time_slot_id && !isDayOff) {
+      try {
+        // Find the work schedule with the given time_slot_id
+        const workSchedule = await WorkSchedule.findById(time_slot_id);
+        
+        if (workSchedule) {
+          // Parse the shiftStart and shiftEnd from the work schedule
+          const [startHour, startMinute] = workSchedule.shiftStart.split(':').map(Number);
+          const [endHour, endMinute] = workSchedule.shiftEnd.split(':').map(Number);
+          
+          // Create the date objects for start and end times
+          const dateObj = moment(date);
+          const startDate = dateObj.clone().hour(startHour).minute(startMinute).second(0);
+          const endDate = dateObj.clone().hour(endHour).minute(endMinute).second(0);
+          
+          // Check if end time is before start time (spans to next day)
+          const dayChanged = endHour < startHour || (endHour === startHour && endMinute < startMinute);
+          if (dayChanged) {
+            endDate.add(1, 'day');
+          }
+          
+          // Update the schedule with the calculated times
+          schedule.schedules[dayIndex].start = startDate.toDate();
+          schedule.schedules[dayIndex].end = endDate.toDate();
+          schedule.schedules[dayIndex].day_changed = dayChanged;
+          schedule.schedules[dayIndex].time_slot_id = time_slot_id;
+          schedule.schedules[dayIndex].actual_expected_minutes = endDate.diff(startDate, 'minutes');
+          schedule.schedules[dayIndex].is_full_overtime_shift = false; // Reset this flag
+          
+          // Add a note about the schedule if none is provided
+          if (!notes) {
+            schedule.schedules[dayIndex].notes = `Using schedule: ${workSchedule.name}`;
+          }
+        }
+      } catch (error) {
+        console.error("Error processing time slot for schedule update:", error);
+        return errorRresponse(res, 500, "Error processing time slot for schedule update", error);
+      }
+    }
+    
+    // Update notes if provided
     if (notes) {
       schedule.schedules[dayIndex].notes = notes;
     }
@@ -506,11 +566,179 @@ const generateScheduleForNewEmployee = async (employee) => {
   }
 };
 
+// Update multiple days across different employee schedules
+const updateMultipleEmployeeScheduleDays = async (req, res) => {
+  try {
+    const { schedules } = req.body;
+    
+    // Validate required fields
+    if (!schedules || !Array.isArray(schedules) || schedules.length === 0) {
+      return errorRresponse(res, 400, "Schedules array is required and must not be empty");
+    }
+    
+    console.log('Received batch update request for schedules:', schedules.length);
+    
+    const results = {
+      success: [],
+      failed: []
+    };
+
+    // Process each schedule update
+    for (const scheduleData of schedules) {
+      try {
+        const { schedule_id, date, isDayOff, time_slot_id, notes } = scheduleData;
+        
+        // Skip invalid entries
+        if (!schedule_id || !date) {
+          results.failed.push({
+            schedule_id,
+            date,
+            reason: "Missing required fields (schedule_id and date)"
+          });
+          continue;
+        }
+        
+        // Find the schedule
+        const schedule = await EmployeeSchedule.findById(schedule_id);
+        if (!schedule) {
+          results.failed.push({
+            schedule_id,
+            date,
+            reason: "Schedule not found"
+          });
+          continue;
+        }
+        
+        // Find the specific day in the schedule
+        const dayIndex = schedule.schedules.findIndex(
+          s => moment(s.date).format('YYYY-MM-DD') === moment(date).format('YYYY-MM-DD')
+        );
+        
+        if (dayIndex === -1) {
+          results.failed.push({
+            schedule_id,
+            date,
+            reason: "Day not found in schedule"
+          });
+          continue;
+        }
+        
+        // Update day off status if provided
+        if (isDayOff !== undefined) {
+          schedule.schedules[dayIndex].isDayOff = isDayOff;
+          
+          // If marking as day off, clear all scheduling-related fields
+          if (isDayOff) {
+            // Reset all scheduling-related fields
+            schedule.schedules[dayIndex].start = null;
+            schedule.schedules[dayIndex].end = null;
+            schedule.schedules[dayIndex].day_changed = false;
+            schedule.schedules[dayIndex].is_full_overtime_shift = false;
+            schedule.schedules[dayIndex].actual_expected_minutes = 0;
+            schedule.schedules[dayIndex].time_slot_id = null;
+            
+            // Set a note if none provided
+            if (!notes) {
+              schedule.schedules[dayIndex].notes = "Day off";
+            }
+          }
+        }
+        
+        // Process time slot if provided and not a day off
+        if (time_slot_id && (!isDayOff || isDayOff === false)) {
+          try {
+            // Find the work schedule with the given time_slot_id
+            const workSchedule = await WorkSchedule.findById(time_slot_id);
+            
+            if (workSchedule) {
+              // Parse the shiftStart and shiftEnd from the work schedule
+              const [startHour, startMinute] = workSchedule.shiftStart.split(':').map(Number);
+              const [endHour, endMinute] = workSchedule.shiftEnd.split(':').map(Number);
+              
+              // Create the date objects for start and end times
+              const dateObj = moment(date);
+              const startDate = dateObj.clone().hour(startHour).minute(startMinute).second(0);
+              const endDate = dateObj.clone().hour(endHour).minute(endMinute).second(0);
+              
+              // Check if end time is before start time (spans to next day)
+              const dayChanged = endHour < startHour || (endHour === startHour && endMinute < startMinute);
+              if (dayChanged) {
+                endDate.add(1, 'day');
+              }
+              
+              // Update the schedule with the calculated times
+              schedule.schedules[dayIndex].start = startDate.toDate();
+              schedule.schedules[dayIndex].end = endDate.toDate();
+              schedule.schedules[dayIndex].day_changed = dayChanged;
+              schedule.schedules[dayIndex].time_slot_id = time_slot_id;
+              schedule.schedules[dayIndex].actual_expected_minutes = endDate.diff(startDate, 'minutes');
+              schedule.schedules[dayIndex].is_full_overtime_shift = false;
+              
+              // Add a note about the schedule if none is provided
+              if (!notes) {
+                schedule.schedules[dayIndex].notes = `Using schedule: ${workSchedule.name}`;
+              }
+            }
+          } catch (error) {
+            console.error(`Error processing time slot for schedule ${schedule_id}:`, error);
+            results.failed.push({
+              schedule_id,
+              date,
+              reason: "Error processing time slot"
+            });
+            continue;
+          }
+        }
+        
+        // Update notes if provided
+        if (notes) {
+          schedule.schedules[dayIndex].notes = notes;
+        }
+        
+        // Save the schedule
+        await schedule.save();
+        
+        // Add to success results
+        results.success.push({
+          schedule_id,
+          date,
+          employee_id: schedule.employee_id
+        });
+        
+      } catch (error) {
+        console.error(`Error updating schedule:`, error);
+        results.failed.push({
+          schedule_id: scheduleData.schedule_id,
+          date: scheduleData.date,
+          reason: error.message || "Unknown error"
+        });
+      }
+    }
+    
+    return successResponse(
+      res,
+      200,
+      "Batch update completed",
+      {
+        total: schedules.length,
+        success: results.success.length,
+        failed: results.failed.length,
+        results
+      }
+    );
+  } catch (error) {
+    console.error("Error in batch update of employee schedules:", error);
+    return errorRresponse(res, 500, "Error updating employee schedules", error);
+  }
+};
+
+// Export functions
 module.exports = {
   generateEmployeeSchedule,
   getEmployeeSchedule,
   getAllEmployeeSchedules,
   updateEmployeeScheduleDay,
+  updateMultipleEmployeeScheduleDays,
   generateAllEmployeeSchedules,
   deleteEmployeeSchedule,
   generateScheduleForNewEmployee

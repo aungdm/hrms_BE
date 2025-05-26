@@ -5,6 +5,7 @@ const {
   getEmployeeSchedule,
   getAllEmployeeSchedules,
   updateEmployeeScheduleDay,
+  updateMultipleEmployeeScheduleDays,
   generateAllEmployeeSchedules,
   deleteEmployeeSchedule
 } = require("../controllers/employeeScheduleController");
@@ -23,6 +24,9 @@ router.get("/", getAllEmployeeSchedules);
 
 // Update a specific day in an employee's schedule
 router.put("/update-day", updateEmployeeScheduleDay);
+
+// Batch update multiple days across different employee schedules
+router.put("/update-multiple", updateMultipleEmployeeScheduleDays);
 
 // Delete an employee schedule
 router.delete("/:id", deleteEmployeeSchedule);
