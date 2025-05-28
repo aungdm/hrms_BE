@@ -11,7 +11,7 @@ const {
 } = require("../controllers/employeeController");
 
 router.post("/create", createRecord);
-router.put("/update/:id", updateRecord);
+router.patch("/update/:id", updateRecord);
 router.get("/get", getRecords);
 router.get("/search", searchRecords);
 router.delete("/delete/:id", deleteRecord);

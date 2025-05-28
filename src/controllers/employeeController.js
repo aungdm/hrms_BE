@@ -139,7 +139,7 @@ const updateRecord = async (req, res) => {
       description,
       employment_type,
       email_username,
-      password,
+      // password,
       role,
       timeSlot,
       leaveTypes,
@@ -153,10 +153,10 @@ const updateRecord = async (req, res) => {
       return errorRresponse(res, 404, "Employee Not Found");
     }
 
-    let hashedPassword = existing.password;
-    if (password) {
-      hashedPassword = await bcrypt.hash(password, 10);
-    }
+    // let hashedPassword = existing.password;
+    // if (password) {
+    //   hashedPassword = await bcrypt.hash(password, 10);
+    // }
 
     // Create update object with all fields
     const updateData = {
@@ -186,7 +186,7 @@ const updateRecord = async (req, res) => {
       description,
       employment_type,
       email_username,
-      password: hashedPassword,
+      // password: hashedPassword,
       role,
       timeSlot,
       leaveTypes,
@@ -230,7 +230,15 @@ const getRecords = async (req, res) => {
 
     const searchQuery = search
       ? {
-          name: { $regex: search, $options: "i" },
+          $or: (() => {
+            const conditions = [
+              { name: { $regex: search, $options: "i" } }
+            ];
+            if (!isNaN(parseFloat(search)) && isFinite(search)) {
+              conditions.push({ user_defined_code: parseFloat(search) });
+            }
+            return conditions;
+          })()
         }
       : {};
     const skips = (page - 1) * perPage;

@@ -7,7 +7,8 @@ const {
   updateEmployeeScheduleDay,
   updateMultipleEmployeeScheduleDays,
   generateAllEmployeeSchedules,
-  deleteEmployeeSchedule
+  deleteEmployeeSchedule,
+  revertEmployeeSchedulesToDefault
 } = require("../controllers/employeeScheduleController");
 
 // Generate a schedule for a specific employee
@@ -30,5 +31,8 @@ router.put("/update-multiple", updateMultipleEmployeeScheduleDays);
 
 // Delete an employee schedule
 router.delete("/:id", deleteEmployeeSchedule);
+
+// Add route for reverting schedules to default
+router.post("/revert", revertEmployeeSchedulesToDefault);
 
 module.exports = router; 

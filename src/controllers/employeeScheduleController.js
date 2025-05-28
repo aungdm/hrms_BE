@@ -9,73 +9,89 @@ const WorkSchedule = require("../models/workSchedule");
 const generateEmployeeSchedule = async (req, res) => {
   try {
     const { employee_id, month, year } = req.body;
-    
+
     // Validate required fields
     if (!employee_id || !month || !year) {
-      return errorRresponse(res, 400, "Employee ID, month, and year are required");
+      return errorRresponse(
+        res,
+        400,
+        "Employee ID, month, and year are required"
+      );
     }
-    
+
     // Find the employee
     const employee = await Employee.findById(employee_id);
-    console.log({employee}, "generateEmployeeSchedule")
+    console.log({ employee }, "generateEmployeeSchedule");
     if (!employee) {
       return errorRresponse(res, 404, "Employee not found");
     }
-    
+
     // Check if the employee has a time slot assigned
     if (!employee.timeSlot) {
-      return errorRresponse(res, 400, "Employee does not have a time slot assigned");
+      return errorRresponse(
+        res,
+        400,
+        "Employee does not have a time slot assigned"
+      );
     }
-    
+
     // Find the time slot
     const timeSlot = await WorkSchedule.findById(employee.timeSlot);
-    console.log({timeSlot}, "generateEmployeeSchedule")
+    console.log({ timeSlot }, "generateEmployeeSchedule");
     if (!timeSlot) {
       return errorRresponse(res, 404, "Time slot not found");
     }
-    
+
     // Check if a schedule already exists for this month/year
     const existingSchedule = await EmployeeSchedule.findOne({
       employee_id,
       month,
-      year
+      year,
     });
-    console.log({existingSchedule}, "generateEmployeeSchedule")
-    
+    console.log({ existingSchedule }, "generateEmployeeSchedule");
+
     if (existingSchedule) {
-      return errorRresponse(res, 400, "Schedule already exists for this employee, month, and year");
+      return errorRresponse(
+        res,
+        400,
+        "Schedule already exists for this employee, month, and year"
+      );
     }
-    
+
     // Generate schedule for the month
     const firstDay = moment(`${year}-${month}-01`);
     const daysInMonth = firstDay.daysInMonth();
-    
+
     const schedules = [];
-    
+
     for (let day = 1; day <= daysInMonth; day++) {
       const date = moment(`${year}-${month}-${day}`);
       const dayOfWeek = date.day(); // 0 = Sunday, 1 = Monday, etc.
-      
+
       // Check if this is a work day for the employee
       const isWorkDay = employee.workDays.includes(dayOfWeek);
-      console.log({isWorkDay}, "generateEmployeeSchedule")
+      console.log({ isWorkDay }, "generateEmployeeSchedule");
       // Parse shift start and end times
-      const [startHour, startMinute] = timeSlot.shiftStart.split(':').map(Number);
-      const [endHour, endMinute] = timeSlot.shiftEnd.split(':').map(Number);
-      
+      const [startHour, startMinute] = timeSlot.shiftStart
+        .split(":")
+        .map(Number);
+      const [endHour, endMinute] = timeSlot.shiftEnd.split(":").map(Number);
+
       // Create start and end datetime objects
       const start = date.clone().hour(startHour).minute(startMinute).second(0);
       const end = date.clone().hour(endHour).minute(endMinute).second(0);
-      
+
       // If end time is earlier than start time, it spans the next day
-      const dayChanged = endHour < startHour || (endHour === startHour && endMinute < startMinute);
+      const dayChanged =
+        endHour < startHour ||
+        (endHour === startHour && endMinute < startMinute);
       if (dayChanged) {
-        end.add(1, 'day');
+        end.add(1, "day");
       }
-      
+
       // Calculate duration in minutes
-      const durationMinutes = end.diff(start, 'minutes');
-      
+      const durationMinutes = end.diff(start, "minutes");
+
       // Create schedule entry
       schedules.push({
         date: date.toDate(),
@@ -85,21 +101,21 @@ const generateEmployeeSchedule = async (req, res) => {
         isDayOff: !isWorkDay,
         is_full_overtime_shift: false,
         actual_expected_minutes: durationMinutes,
-        notes: isWorkDay ? "Regular work day" : "Day off"
+        notes: isWorkDay ? "Regular work day" : "Day off",
+        time_slot_id: timeSlot._id,
       });
     }
-    
+
     // Create the employee schedule
     const employeeSchedule = new EmployeeSchedule({
       employee_id,
-      time_slot_id: timeSlot._id,
       month,
       year,
-      schedules
+      schedules,
     });
-    
+
     await employeeSchedule.save();
-    
+
     return successResponse(
       res,
       201,
@@ -108,7 +124,12 @@ const generateEmployeeSchedule = async (req, res) => {
     );
   } catch (error) {
     console.error("Error generating employee schedule:", error);
-    return errorRresponse(res, 500, "Error generating employee schedule", error);
+    return errorRresponse(
+      res,
+      500,
+      "Error generating employee schedule",
+      error
+    );
   }
 };
 
@@ -116,24 +137,29 @@ const generateEmployeeSchedule = async (req, res) => {
 const getEmployeeSchedule = async (req, res) => {
   try {
     const { employee_id, month, year } = req.query;
-    console.log({employee_id, month, year}, "getEmployeeSchedule")
-    
+    console.log({ employee_id, month, year }, "getEmployeeSchedule");
+
     // Validate required fields
     if (!employee_id || !month || !year) {
-      return errorRresponse(res, 400, "Employee ID, month, and year are required");
+      return errorRresponse(
+        res,
+        400,
+        "Employee ID, month, and year are required"
+      );
     }
-    
+
     // Find the schedule
     const schedule = await EmployeeSchedule.findOne({
       employee_id,
       month,
-      year
-    }).populate('employee_id', 'name').populate('time_slot_id');
-    
+      year,
+    }).populate("employee_id", "name");
+    // .populate("time_slot_id");
+
     if (!schedule) {
       return errorRresponse(res, 404, "Schedule not found");
     }
-    
+
     return successResponse(
       res,
       200,
@@ -142,7 +168,12 @@ const getEmployeeSchedule = async (req, res) => {
     );
   } catch (error) {
     console.error("Error retrieving employee schedule:", error);
-    return errorRresponse(res, 500, "Error retrieving employee schedule", error);
+    return errorRresponse(
+      res,
+      500,
+      "Error retrieving employee schedule",
+      error
+    );
   }
 };
 
@@ -150,28 +181,28 @@ const getEmployeeSchedule = async (req, res) => {
 const getAllEmployeeSchedules = async (req, res) => {
   try {
     const { month, year, page = 1, perPage = 10 } = req.query;
-    
+
     // Validate required fields
     if (!month || !year) {
       return errorRresponse(res, 400, "Month and year are required");
     }
-    
+
     // Find all schedules for the month and year
     const schedules = await EmployeeSchedule.find({
       month,
-      year
+      year,
     })
-      .populate('employee_id', 'name')
-      .populate('time_slot_id')
+      .populate("employee_id", "name user_defined_code")
+      // .populate("time_slot_id")
       .skip((page - 1) * perPage)
       .limit(parseInt(perPage));
-    
+
     // Count total records for pagination
     const total = await EmployeeSchedule.countDocuments({
       month,
-      year
+      year,
     });
-    
+
     return successResponse(
       res,
       200,
@@ -182,51 +213,61 @@ const getAllEmployeeSchedules = async (req, res) => {
           total,
           page: Number(page),
           perPage: Number(perPage),
-          totalPages: Math.ceil(total / perPage)
-        }
+          totalPages: Math.ceil(total / perPage),
+        },
       }
     );
   } catch (error) {
     console.error("Error retrieving employee schedules:", error);
-    return errorRresponse(res, 500, "Error retrieving employee schedules", error);
+    return errorRresponse(
+      res,
+      500,
+      "Error retrieving employee schedules",
+      error
+    );
   }
 };
 
 // Update a specific day in an employee's schedule
 const updateEmployeeScheduleDay = async (req, res) => {
   try {
-    const { schedule_id, date, isDayOff, notes, time_slot_id} = req.body;
-    console.log({schedule_id, date, isDayOff, notes, time_slot_id}, "updateEmployeeScheduleDay")
+    const { schedule_id, date, isDayOff, notes, time_slot_id } = req.body;
+    console.log(
+      { schedule_id, date, isDayOff, notes, time_slot_id },
+      "updateEmployeeScheduleDay"
+    );
 
     // Validate required fields
     if (!schedule_id || !date) {
       return errorRresponse(res, 400, "Schedule ID and date are required");
     }
-    
+
     // Find the schedule
     const schedule = await EmployeeSchedule.findById(schedule_id);
     if (!schedule) {
       return errorRresponse(res, 404, "Schedule not found");
     }
-    
+
     // Find the specific day in the schedule
     const dayIndex = schedule.schedules.findIndex(
-      s => moment(s.date).format('YYYY-MM-DD') === moment(date).format('YYYY-MM-DD')
+      (s) =>
+        moment(s.date).format("YYYY-MM-DD") ===
+        moment(date).format("YYYY-MM-DD")
     );
-    
+
     if (dayIndex === -1) {
       return errorRresponse(res, 404, "Day not found in schedule");
     }
-    
+
     // Update the day
     if (isDayOff !== undefined) {
       schedule.schedules[dayIndex].isDayOff = isDayOff;
-      
+
       // If marking as day off, clear all scheduling-related fields
       if (isDayOff) {
         // Keep only necessary fields for a day off
         const dateObj = moment(date).toDate();
-        
+
         // Reset all scheduling-related fields
         schedule.schedules[dayIndex].start = null;
         schedule.schedules[dayIndex].end = null;
@@ -234,19 +275,19 @@ const updateEmployeeScheduleDay = async (req, res) => {
         schedule.schedules[dayIndex].is_full_overtime_shift = false;
         schedule.schedules[dayIndex].actual_expected_minutes = 0;
         schedule.schedules[dayIndex].time_slot_id = null;
-        
+
         // Set a note if none provided
         if (!notes) {
           schedule.schedules[dayIndex].notes = "Day off";
         }
-        
+
         // Skip further processing since this is a day off
         if (notes) {
           schedule.schedules[dayIndex].notes = notes;
         }
-        
+
         await schedule.save();
-        
+
         return successResponse(
           res,
           200,
@@ -255,55 +296,79 @@ const updateEmployeeScheduleDay = async (req, res) => {
         );
       }
     }
-    
+
     // If time_slot_id is provided and it's not a day off, fetch the time slot details and use them
     if (time_slot_id && !isDayOff) {
       try {
         // Find the work schedule with the given time_slot_id
         const workSchedule = await WorkSchedule.findById(time_slot_id);
-        
+
         if (workSchedule) {
           // Parse the shiftStart and shiftEnd from the work schedule
-          const [startHour, startMinute] = workSchedule.shiftStart.split(':').map(Number);
-          const [endHour, endMinute] = workSchedule.shiftEnd.split(':').map(Number);
-          
+          const [startHour, startMinute] = workSchedule.shiftStart
+            .split(":")
+            .map(Number);
+          const [endHour, endMinute] = workSchedule.shiftEnd
+            .split(":")
+            .map(Number);
+
           // Create the date objects for start and end times
           const dateObj = moment(date);
-          const startDate = dateObj.clone().hour(startHour).minute(startMinute).second(0);
-          const endDate = dateObj.clone().hour(endHour).minute(endMinute).second(0);
-          
+          const startDate = dateObj
+            .clone()
+            .hour(startHour)
+            .minute(startMinute)
+            .second(0);
+          const endDate = dateObj
+            .clone()
+            .hour(endHour)
+            .minute(endMinute)
+            .second(0);
+
           // Check if end time is before start time (spans to next day)
-          const dayChanged = endHour < startHour || (endHour === startHour && endMinute < startMinute);
+          const dayChanged =
+            endHour < startHour ||
+            (endHour === startHour && endMinute < startMinute);
           if (dayChanged) {
-            endDate.add(1, 'day');
+            endDate.add(1, "day");
           }
-          
+
           // Update the schedule with the calculated times
           schedule.schedules[dayIndex].start = startDate.toDate();
           schedule.schedules[dayIndex].end = endDate.toDate();
           schedule.schedules[dayIndex].day_changed = dayChanged;
           schedule.schedules[dayIndex].time_slot_id = time_slot_id;
-          schedule.schedules[dayIndex].actual_expected_minutes = endDate.diff(startDate, 'minutes');
+          schedule.schedules[dayIndex].actual_expected_minutes = endDate.diff(
+            startDate,
+            "minutes"
+          );
           schedule.schedules[dayIndex].is_full_overtime_shift = false; // Reset this flag
-          
+
           // Add a note about the schedule if none is provided
           if (!notes) {
-            schedule.schedules[dayIndex].notes = `Using schedule: ${workSchedule.name}`;
+            schedule.schedules[
+              dayIndex
+            ].notes = `Using schedule: ${workSchedule.name}`;
           }
         }
       } catch (error) {
         console.error("Error processing time slot for schedule update:", error);
-        return errorRresponse(res, 500, "Error processing time slot for schedule update", error);
+        return errorRresponse(
+          res,
+          500,
+          "Error processing time slot for schedule update",
+          error
+        );
       }
     }
-    
+
     // Update notes if provided
     if (notes) {
       schedule.schedules[dayIndex].notes = notes;
     }
-    
+
     await schedule.save();
-    
+
     return successResponse(
       res,
       200,
@@ -312,7 +377,12 @@ const updateEmployeeScheduleDay = async (req, res) => {
     );
   } catch (error) {
     console.error("Error updating employee schedule day:", error);
-    return errorRresponse(res, 500, "Error updating employee schedule day", error);
+    return errorRresponse(
+      res,
+      500,
+      "Error updating employee schedule day",
+      error
+    );
   }
 };
 
@@ -320,20 +390,22 @@ const updateEmployeeScheduleDay = async (req, res) => {
 const generateAllEmployeeSchedules = async (req, res) => {
   try {
     const { month, year } = req.body;
-    
+
     // Validate required fields
     if (!month || !year) {
       return errorRresponse(res, 400, "Month and year are required");
     }
-    
+
     // Find all employees with assigned time slots
-    const employees = await Employee.find({ timeSlot: { $exists: true, $ne: null } });
-    console.log({employees}, "generateAllEmployeeSchedules")
+    const employees = await Employee.find({
+      timeSlot: { $exists: true, $ne: null },
+    });
+    console.log({ employees }, "generateAllEmployeeSchedules");
     const results = {
       success: [],
-      failed: []
+      failed: [],
     };
-    
+
     // Generate schedules for each employee
     for (const employee of employees) {
       try {
@@ -341,59 +413,67 @@ const generateAllEmployeeSchedules = async (req, res) => {
         const existingSchedule = await EmployeeSchedule.findOne({
           employee_id: employee._id,
           month,
-          year
+          year,
         });
-        console.log({existingSchedule}, "generateAllEmployeeSchedules")
+        console.log({ existingSchedule }, "generateAllEmployeeSchedules");
         if (existingSchedule) {
           results.failed.push({
             employee_id: employee._id,
             name: employee.name,
-            reason: "Schedule already exists"
+            reason: "Schedule already exists",
           });
           continue;
         }
-        
+
         // Find the time slot
         const timeSlot = await WorkSchedule.findById(employee.timeSlot);
         if (!timeSlot) {
           results.failed.push({
             employee_id: employee._id,
             name: employee.name,
-            reason: "Time slot not found"
+            reason: "Time slot not found",
           });
           continue;
         }
-        
+
         // Generate schedule for the month
         const firstDay = moment(`${year}-${month}-01`);
         const daysInMonth = firstDay.daysInMonth();
-        
+
         const schedules = [];
-        
+
         for (let day = 1; day <= daysInMonth; day++) {
           const date = moment(`${year}-${month}-${day}`);
           const dayOfWeek = date.day(); // 0 = Sunday, 1 = Monday, etc.
-          
+
           // Check if this is a work day for the employee
           const isWorkDay = employee.workDays.includes(dayOfWeek);
-          
+
           // Parse shift start and end times
-          const [startHour, startMinute] = timeSlot.shiftStart.split(':').map(Number);
-          const [endHour, endMinute] = timeSlot.shiftEnd.split(':').map(Number);
-          
+          const [startHour, startMinute] = timeSlot.shiftStart
+            .split(":")
+            .map(Number);
+          const [endHour, endMinute] = timeSlot.shiftEnd.split(":").map(Number);
+
           // Create start and end datetime objects
-          const start = date.clone().hour(startHour).minute(startMinute).second(0);
+          const start = date
+            .clone()
+            .hour(startHour)
+            .minute(startMinute)
+            .second(0);
           const end = date.clone().hour(endHour).minute(endMinute).second(0);
-          
+
           // If end time is earlier than start time, it spans the next day
-          const dayChanged = endHour < startHour || (endHour === startHour && endMinute < startMinute);
+          const dayChanged =
+            endHour < startHour ||
+            (endHour === startHour && endMinute < startMinute);
           if (dayChanged) {
-            end.add(1, 'day');
+            end.add(1, "day");
           }
-          
+
           // Calculate duration in minutes
-          const durationMinutes = end.diff(start, 'minutes');
-          
+          const durationMinutes = end.diff(start, "minutes");
+
           // Create schedule entry
           schedules.push({
             date: date.toDate(),
@@ -403,49 +483,52 @@ const generateAllEmployeeSchedules = async (req, res) => {
             isDayOff: !isWorkDay,
             is_full_overtime_shift: false,
             actual_expected_minutes: durationMinutes,
-            notes: isWorkDay ? "Regular work day" : "Day off"
+            notes: isWorkDay ? "Regular work day" : "Day off",
+            time_slot_id: timeSlot._id,
           });
         }
-        
+
         // Create the employee schedule
         const employeeSchedule = new EmployeeSchedule({
           employee_id: employee._id,
-          time_slot_id: timeSlot._id,
           month,
           year,
-          schedules
+          schedules,
         });
-        
+
         await employeeSchedule.save();
-        
+
         results.success.push({
           employee_id: employee._id,
-          name: employee.name
+          name: employee.name,
         });
       } catch (error) {
-        console.error(`Error generating schedule for employee ${employee._id}:`, error);
+        console.error(
+          `Error generating schedule for employee ${employee._id}:`,
+          error
+        );
         results.failed.push({
           employee_id: employee._id,
           name: employee.name,
-          reason: error.message
+          reason: error.message,
         });
       }
     }
-    
-    return successResponse(
-      res,
-      200,
-      "Employee schedules generated",
-      {
-        total: employees.length,
-        success: results.success.length,
-        failed: results.failed.length,
-        results
-      }
-    );
+
+    return successResponse(res, 200, "Employee schedules generated", {
+      total: employees.length,
+      success: results.success.length,
+      failed: results.failed.length,
+      results,
+    });
   } catch (error) {
     console.error("Error generating employee schedules:", error);
-    return errorRresponse(res, 500, "Error generating employee schedules", error);
+    return errorRresponse(
+      res,
+      500,
+      "Error generating employee schedules",
+      error
+    );
   }
 };
 
@@ -453,12 +536,12 @@ const generateAllEmployeeSchedules = async (req, res) => {
 const deleteEmployeeSchedule = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const schedule = await EmployeeSchedule.findByIdAndDelete(id);
     if (!schedule) {
       return errorRresponse(res, 404, "Schedule not found");
     }
-    
+
     return successResponse(
       res,
       200,
@@ -477,64 +560,72 @@ const generateScheduleForNewEmployee = async (employee) => {
   try {
     // Only proceed if the employee has a time slot
     if (!employee.timeSlot) {
-      console.log(`Employee ${employee._id} does not have a time slot assigned. Skipping schedule generation.`);
+      console.log(
+        `Employee ${employee._id} does not have a time slot assigned. Skipping schedule generation.`
+      );
       return null;
     }
-    
+
     // Get the current month and year
     const now = moment();
     const month = now.month() + 1; // moment months are 0-indexed
     const year = now.year();
-    
+
     // Check if a schedule already exists
     const existingSchedule = await EmployeeSchedule.findOne({
       employee_id: employee._id,
       month,
-      year
+      year,
     });
-    
+
     if (existingSchedule) {
-      console.log(`Schedule already exists for employee ${employee._id} for ${year}-${month}`);
+      console.log(
+        `Schedule already exists for employee ${employee._id} for ${year}-${month}`
+      );
       return existingSchedule;
     }
-    
+
     // Find the time slot
     const timeSlot = await Scheduling.findById(employee.timeSlot);
     if (!timeSlot) {
       console.log(`Time slot not found for employee ${employee._id}`);
       return null;
     }
-    
+
     // Generate schedule for the month
     const firstDay = moment(`${year}-${month}-01`);
     const daysInMonth = firstDay.daysInMonth();
-    
+
     const schedules = [];
-    
+
     for (let day = 1; day <= daysInMonth; day++) {
       const date = moment(`${year}-${month}-${day}`);
       const dayOfWeek = date.day(); // 0 = Sunday, 1 = Monday, etc.
-      
+
       // Check if this is a work day for the employee
       const isWorkDay = timeSlot.workDays.includes(dayOfWeek);
-      
+
       // Parse shift start and end times
-      const [startHour, startMinute] = timeSlot.shiftStart.split(':').map(Number);
-      const [endHour, endMinute] = timeSlot.shiftEnd.split(':').map(Number);
-      
+      const [startHour, startMinute] = timeSlot.shiftStart
+        .split(":")
+        .map(Number);
+      const [endHour, endMinute] = timeSlot.shiftEnd.split(":").map(Number);
+
       // Create start and end datetime objects
       const start = date.clone().hour(startHour).minute(startMinute).second(0);
       const end = date.clone().hour(endHour).minute(endMinute).second(0);
-      
+
       // If end time is earlier than start time, it spans the next day
-      const dayChanged = endHour < startHour || (endHour === startHour && endMinute < startMinute);
+      const dayChanged =
+        endHour < startHour ||
+        (endHour === startHour && endMinute < startMinute);
       if (dayChanged) {
-        end.add(1, 'day');
+        end.add(1, "day");
       }
-      
+
       // Calculate duration in minutes
-      const durationMinutes = end.diff(start, 'minutes');
-      
+      const durationMinutes = end.diff(start, "minutes");
+
       // Create schedule entry
       schedules.push({
         date: date.toDate(),
@@ -544,24 +635,29 @@ const generateScheduleForNewEmployee = async (employee) => {
         isDayOff: !isWorkDay,
         is_full_overtime_shift: false,
         actual_expected_minutes: durationMinutes,
-        notes: isWorkDay ? "Regular work day" : "Day off"
+        notes: isWorkDay ? "Regular work day" : "Day off",
+        time_slot_id: timeSlot._id,
       });
     }
-    
+
     // Create the employee schedule
     const employeeSchedule = new EmployeeSchedule({
       employee_id: employee._id,
-      time_slot_id: timeSlot._id,
       month,
       year,
-      schedules
+      schedules,
     });
-    
+
     await employeeSchedule.save();
-    console.log(`Schedule generated for employee ${employee._id} for ${year}-${month}`);
+    console.log(
+      `Schedule generated for employee ${employee._id} for ${year}-${month}`
+    );
     return employeeSchedule;
   } catch (error) {
-    console.error(`Error generating schedule for employee ${employee._id}:`, error);
+    console.error(
+      `Error generating schedule for employee ${employee._id}:`,
+      error
+    );
     return null;
   }
 };
@@ -570,63 +666,73 @@ const generateScheduleForNewEmployee = async (employee) => {
 const updateMultipleEmployeeScheduleDays = async (req, res) => {
   try {
     const { schedules } = req.body;
-    
+
     // Validate required fields
     if (!schedules || !Array.isArray(schedules) || schedules.length === 0) {
-      return errorRresponse(res, 400, "Schedules array is required and must not be empty");
+      return errorRresponse(
+        res,
+        400,
+        "Schedules array is required and must not be empty"
+      );
     }
-    
-    console.log('Received batch update request for schedules:', schedules.length);
-    
+
+    console.log(
+      "Received batch update request for schedules:",
+      schedules.length
+    );
+
     const results = {
       success: [],
-      failed: []
+      failed: [],
     };
 
     // Process each schedule update
     for (const scheduleData of schedules) {
       try {
-        const { schedule_id, date, isDayOff, time_slot_id, notes } = scheduleData;
-        
+        const { schedule_id, date, isDayOff, time_slot_id, notes } =
+          scheduleData;
+
         // Skip invalid entries
         if (!schedule_id || !date) {
           results.failed.push({
             schedule_id,
             date,
-            reason: "Missing required fields (schedule_id and date)"
+            reason: "Missing required fields (schedule_id and date)",
           });
           continue;
         }
-        
+
         // Find the schedule
         const schedule = await EmployeeSchedule.findById(schedule_id);
         if (!schedule) {
           results.failed.push({
             schedule_id,
             date,
-            reason: "Schedule not found"
+            reason: "Schedule not found",
           });
           continue;
         }
-        
+
         // Find the specific day in the schedule
         const dayIndex = schedule.schedules.findIndex(
-          s => moment(s.date).format('YYYY-MM-DD') === moment(date).format('YYYY-MM-DD')
+          (s) =>
+            moment(s.date).format("YYYY-MM-DD") ===
+            moment(date).format("YYYY-MM-DD")
         );
-        
+
         if (dayIndex === -1) {
           results.failed.push({
             schedule_id,
             date,
-            reason: "Day not found in schedule"
+            reason: "Day not found in schedule",
           });
           continue;
         }
-        
+
         // Update day off status if provided
         if (isDayOff !== undefined) {
           schedule.schedules[dayIndex].isDayOff = isDayOff;
-          
+
           // If marking as day off, clear all scheduling-related fields
           if (isDayOff) {
             // Reset all scheduling-related fields
@@ -636,102 +742,266 @@ const updateMultipleEmployeeScheduleDays = async (req, res) => {
             schedule.schedules[dayIndex].is_full_overtime_shift = false;
             schedule.schedules[dayIndex].actual_expected_minutes = 0;
             schedule.schedules[dayIndex].time_slot_id = null;
-            
+
             // Set a note if none provided
             if (!notes) {
               schedule.schedules[dayIndex].notes = "Day off";
             }
           }
         }
-        
+
         // Process time slot if provided and not a day off
         if (time_slot_id && (!isDayOff || isDayOff === false)) {
           try {
             // Find the work schedule with the given time_slot_id
             const workSchedule = await WorkSchedule.findById(time_slot_id);
-            
+
             if (workSchedule) {
               // Parse the shiftStart and shiftEnd from the work schedule
-              const [startHour, startMinute] = workSchedule.shiftStart.split(':').map(Number);
-              const [endHour, endMinute] = workSchedule.shiftEnd.split(':').map(Number);
-              
+              const [startHour, startMinute] = workSchedule.shiftStart
+                .split(":")
+                .map(Number);
+              const [endHour, endMinute] = workSchedule.shiftEnd
+                .split(":")
+                .map(Number);
+
               // Create the date objects for start and end times
               const dateObj = moment(date);
-              const startDate = dateObj.clone().hour(startHour).minute(startMinute).second(0);
-              const endDate = dateObj.clone().hour(endHour).minute(endMinute).second(0);
-              
+              const startDate = dateObj
+                .clone()
+                .hour(startHour)
+                .minute(startMinute)
+                .second(0);
+              const endDate = dateObj
+                .clone()
+                .hour(endHour)
+                .minute(endMinute)
+                .second(0);
+
               // Check if end time is before start time (spans to next day)
-              const dayChanged = endHour < startHour || (endHour === startHour && endMinute < startMinute);
+              const dayChanged =
+                endHour < startHour ||
+                (endHour === startHour && endMinute < startMinute);
               if (dayChanged) {
-                endDate.add(1, 'day');
+                endDate.add(1, "day");
               }
-              
+
               // Update the schedule with the calculated times
               schedule.schedules[dayIndex].start = startDate.toDate();
               schedule.schedules[dayIndex].end = endDate.toDate();
               schedule.schedules[dayIndex].day_changed = dayChanged;
               schedule.schedules[dayIndex].time_slot_id = time_slot_id;
-              schedule.schedules[dayIndex].actual_expected_minutes = endDate.diff(startDate, 'minutes');
+              schedule.schedules[dayIndex].actual_expected_minutes =
+                endDate.diff(startDate, "minutes");
               schedule.schedules[dayIndex].is_full_overtime_shift = false;
-              
+
               // Add a note about the schedule if none is provided
               if (!notes) {
-                schedule.schedules[dayIndex].notes = `Using schedule: ${workSchedule.name}`;
+                schedule.schedules[
+                  dayIndex
+                ].notes = `Using schedule: ${workSchedule.name}`;
               }
             }
           } catch (error) {
-            console.error(`Error processing time slot for schedule ${schedule_id}:`, error);
+            console.error(
+              `Error processing time slot for schedule ${schedule_id}:`,
+              error
+            );
             results.failed.push({
               schedule_id,
               date,
-              reason: "Error processing time slot"
+              reason: "Error processing time slot",
             });
             continue;
           }
         }
-        
+
         // Update notes if provided
         if (notes) {
           schedule.schedules[dayIndex].notes = notes;
         }
-        
+
         // Save the schedule
         await schedule.save();
-        
+
         // Add to success results
         results.success.push({
           schedule_id,
           date,
-          employee_id: schedule.employee_id
+          employee_id: schedule.employee_id,
         });
-        
       } catch (error) {
         console.error(`Error updating schedule:`, error);
         results.failed.push({
           schedule_id: scheduleData.schedule_id,
           date: scheduleData.date,
-          reason: error.message || "Unknown error"
+          reason: error.message || "Unknown error",
         });
       }
     }
-    
-    return successResponse(
-      res,
-      200,
-      "Batch update completed",
-      {
-        total: schedules.length,
-        success: results.success.length,
-        failed: results.failed.length,
-        results
-      }
-    );
+
+    return successResponse(res, 200, "Batch update completed", {
+      total: schedules.length,
+      success: results.success.length,
+      failed: results.failed.length,
+      results,
+    });
   } catch (error) {
     console.error("Error in batch update of employee schedules:", error);
     return errorRresponse(res, 500, "Error updating employee schedules", error);
   }
 };
+// Add the new controller function here
+const revertEmployeeSchedulesToDefault = async (req, res) => {
+  try {
+    const { employee_ids, month, year } = req.body;
 
+    // Validate required fields
+    if (!employee_ids || !Array.isArray(employee_ids) || employee_ids.length === 0 || !month || !year) {
+      return errorRresponse(
+        res,
+        400,
+        "Employee IDs (as an array), month, and year are required"
+      );
+    }
+
+    const results = {
+      success: [],
+      failed: [],
+    };
+
+    for (const employee_id of employee_ids) {
+      try {
+        // 1. Find and delete the existing schedule
+        const deleteResult = await EmployeeSchedule.deleteOne({
+          employee_id,
+          month,
+          year,
+        });
+
+        console.log(`Deleted schedule for employee ${employee_id}:`, deleteResult.deletedCount > 0 ? "Yes" : "No");
+
+        // 2. Find the employee and their time slot
+        const employee = await Employee.findById(employee_id);
+
+        if (!employee) {
+          results.failed.push({
+            employee_id,
+            reason: "Employee not found",
+          });
+          continue;
+        }
+
+        // Check if the employee has a time slot assigned
+        if (!employee.timeSlot) {
+          results.failed.push({
+            employee_id,
+            name: employee.name,
+            reason: "Employee does not have a time slot assigned",
+          });
+          continue;
+        }
+
+        // Find the time slot
+        const timeSlot = await WorkSchedule.findById(employee.timeSlot);
+
+        if (!timeSlot) {
+           results.failed.push({
+             employee_id,
+             name: employee.name,
+             reason: "Time slot not found for employee",
+           });
+           continue;
+        }
+
+        // 3. Generate the default schedule for the month
+        const firstDay = moment(`${year}-${month}-01`);
+        const daysInMonth = firstDay.daysInMonth();
+        const schedules = [];
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const date = moment(`${year}-${month}-${day}`);
+          const dayOfWeek = date.day(); // 0 = Sunday, 1 = Monday, etc.
+
+          // Check if this is a work day for the employee
+          const isWorkDay = employee.workDays.includes(dayOfWeek);
+
+          // Parse shift start and end times
+          const [startHour, startMinute] = timeSlot.shiftStart
+            .split(":")
+            .map(Number);
+          const [endHour, endMinute] = timeSlot.shiftEnd.split(":").map(Number);
+
+          // Create start and end datetime objects
+          const start = date.clone().hour(startHour).minute(startMinute).second(0);
+          const end = date.clone().hour(endHour).minute(endMinute).second(0);
+
+          // If end time is earlier than start time, it spans the next day
+          const dayChanged = endHour < startHour || (endHour === startHour && endMinute < startMinute);
+          if (dayChanged) {
+            end.add(1, "day");
+          }
+
+          // Calculate duration in minutes
+          const durationMinutes = end.diff(start, "minutes");
+
+          // Create schedule entry
+          schedules.push({
+            date: date.toDate(),
+            start: start.toDate(),
+            end: end.toDate(),
+            day_changed: dayChanged,
+            isDayOff: !isWorkDay,
+            is_full_overtime_shift: false,
+            actual_expected_minutes: durationMinutes,
+            notes: isWorkDay ? "Regular work day (Default)" : "Day off (Default)",
+            time_slot_id: timeSlot._id,
+          });
+        }
+
+        // 4. Create and save the new default schedule
+        const newEmployeeSchedule = new EmployeeSchedule({
+          employee_id,
+          month,
+          year,
+          schedules,
+        });
+
+        await newEmployeeSchedule.save();
+
+        results.success.push({
+          employee_id,
+          name: employee.name,
+        });
+
+      } catch (error) {
+        console.error(`Error reverting schedule for employee ${employee_id}:`, error);
+        const employee = await Employee.findById(employee_id);
+        results.failed.push({
+          employee_id,
+          name: employee ? employee.name : "Unknown Employee",
+          reason: error.message || "Unknown error",
+        });
+      }
+    }
+
+    return successResponse(res, 200, "Revert schedules operation completed", {
+      total: employee_ids.length,
+      success: results.success.length,
+      failed: results.failed.length,
+      results,
+    });
+
+  } catch (error) {
+    console.error("Error in reverting employee schedules:", error);
+    return errorRresponse(
+      res,
+      500,
+      "Error reverting employee schedules",
+      error
+    );
+  }
+};
 // Export functions
 module.exports = {
   generateEmployeeSchedule,
@@ -741,5 +1011,8 @@ module.exports = {
   updateMultipleEmployeeScheduleDays,
   generateAllEmployeeSchedules,
   deleteEmployeeSchedule,
-  generateScheduleForNewEmployee
-}; 
+  generateScheduleForNewEmployee,
+  revertEmployeeSchedulesToDefault,
+};
+
+

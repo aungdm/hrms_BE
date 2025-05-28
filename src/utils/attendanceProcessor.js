@@ -2,6 +2,7 @@ const AttendanceLog = require("../models/attendanceLogs");
 const DailyAttendance = require("../models/dailyAttendance");
 const Employee = require("../models/employee");
 const ProcessTracking = require("../models/processTracking");
+const EmployeeSchedule = require("../models/employeeSchedule");
 
 const WorkSchedule = require("../models/workSchedule");
 const moment = require("moment");
@@ -94,27 +95,37 @@ const processAttendanceLogs = async (
       // Process each employee for this day
       for (const employee of employees) {
         try {
-          // If employee has no work schedule, skip
-          if (!employee.timeSlot) {
-            console.warn(`No time slot assigned for employee ${employee._id}`);
-            continue;
-          }
+          // Find the employee's schedule for this day
+          const currentDateStr = currentDate.format('YYYY-MM-DD');
+          const monthNum = currentDate.month() + 1; // moment is 0-indexed for months
+          const yearNum = currentDate.year();
 
-          // Get the employee's work schedule
-          const workSchedule = await WorkSchedule.findOne({
-            _id: employee.timeSlot,
+          // Get the employee schedule instead of work schedule
+          const employeeSchedule = await EmployeeSchedule.findOne({
+            employee_id: employee._id,
+            month: monthNum,
+            year: yearNum
           });
 
-          if (!workSchedule) {
-            console.warn(`No work schedule found for employee ${employee._id}`);
+          if (!employeeSchedule) {
+            console.warn(`No employee schedule found for ${employee._id} for ${monthNum}/${yearNum}`);
             continue;
           }
 
-          // Determine day of week (0 = Sunday, 1 = Monday, etc.)
-          const dayOfWeek = currentDate.day();
-          const isWorkDay = workSchedule.workDays.includes(dayOfWeek);
+          // Find the specific day's schedule
+          const daySchedule = employeeSchedule.schedules.find(
+            s => moment(s.date).format('YYYY-MM-DD') === currentDateStr
+          );
 
-          // If it's not a work day, create a weekend/holiday record and continue to next employee
+          if (!daySchedule) {
+            console.warn(`No day schedule found for ${employee._id} on ${currentDateStr}`);
+            continue;
+          }
+
+          // Determine if it's a work day based on isDayOff flag
+          const isWorkDay = !daySchedule.isDayOff;
+
+          // If it's not a work day, create a weekend/holiday record and continue
           if (!isWorkDay) {
             await createOrUpdateDailyAttendance(
               employee._id,
@@ -126,49 +137,27 @@ const processAttendanceLogs = async (
               0,
               0,
               [],
-              0,  // No expected work hours on weekend/holidays
-              "Day Off", // No check-in status for weekends
-              "Day Off", // No check-out status for weekends
-              null, // expectedCheckinTime for non-working days
-              null, // expectedCheckoutTime for non-working days
-              false // isOverTime for non-working days
+              0,
+              "Day Off",
+              "Day Off",
+              null,
+              null,
+              false
             );
             created++;
             continue;
           }
 
-          // Parse shift times for the current day
-          const [shiftStartHour, shiftStartMinute] = workSchedule.shiftStart
-            .split(":")
-            .map(Number);
-          const [shiftEndHour, shiftEndMinute] = workSchedule.shiftEnd
-            .split(":")
-            .map(Number);
+          // Use the specific start and end times from the day's schedule
+          const shiftStartTime = moment(daySchedule.start);
+          const shiftEndTime = moment(daySchedule.end);
 
-          // Create shift start and end timestamps for the current day
-          const shiftStartTime = currentDate.clone().set({
-            hour: shiftStartHour,
-            minute: shiftStartMinute,
-            second: 0,
-            millisecond: 0,
-          });
-
-          const shiftEndTime = currentDate.clone().set({
-            hour: shiftEndHour,
-            minute: shiftEndMinute,
-            second: 0,
-            millisecond: 0,
-          });
-          if (shiftEndTime.isBefore(shiftStartTime)) {
-            shiftEndTime.add(1, "day");
-          }
-
-          // Calculate the extended window for early check-in (up to 6 hours before shift start)
+          // Calculate the extended window for early check-in
           const earlyWindow = shiftStartTime
             .clone()
             .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS, "hours");
 
-          // Calculate the extended window for late check-out (up to 6 hours after shift end)
+          // Calculate the extended window for late check-out
           const lateWindow = shiftEndTime
             .clone()
             .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS, "hours");
@@ -188,7 +177,7 @@ const processAttendanceLogs = async (
               employee._id,
               currentDate.toDate(),
               logs,
-              workSchedule,
+              daySchedule,
               isWorkDay,
               shiftStartTime.toDate(),
               shiftEndTime.toDate()
@@ -206,11 +195,9 @@ const processAttendanceLogs = async (
             if (result.updated) updated++;
           } else {
             // No logs found within the extended window - mark as absent
-            // Calculate expected work hours for this shift
-            const expectedWorkHoursForShift = calculateExpectedWorkHours(
-              shiftStartTime.toDate(),
-              shiftEndTime.toDate()
-            );
+            // Get expected work hours directly from the day schedule
+            const expectedWorkHoursForShift = daySchedule.actual_expected_minutes || 
+              calculateExpectedWorkHours(shiftStartTime.toDate(), shiftEndTime.toDate());
             
             await createOrUpdateDailyAttendance(
               employee._id,
@@ -222,12 +209,12 @@ const processAttendanceLogs = async (
               0,
               0,
               [],
-              expectedWorkHoursForShift,  // Include expected work hours
-              "Absent",  // Absent check-in status
-              "Absent",  // Absent check-out status
-              shiftStartTime.toDate(), // Store expected check-in time even for absent
-              shiftEndTime.toDate(),   // Store expected check-out time even for absent
-              false  // No overtime for absent
+              expectedWorkHoursForShift,
+              "Absent",
+              "Absent",
+              shiftStartTime.toDate(),
+              shiftEndTime.toDate(),
+              false
             );
             created++;
           }
@@ -266,7 +253,7 @@ const processAttendanceLogs = async (
  * @param {String} employeeId - Employee ID
  * @param {Date} date - The date to process
  * @param {Array} logs - Attendance logs
- * @param {Object} workSchedule - Employee's work schedule
+ * @param {Object} daySchedule - Employee's day schedule
  * @param {Boolean} isWorkDay - Whether this is a working day
  * @param {Date} shiftStartDate - The exact datetime of shift start
  * @param {Date} shiftEndDate - The exact datetime of shift end
@@ -276,7 +263,7 @@ const processDailyAttendance = async (
   employeeId,
   date,
   logs,
-  workSchedule,
+  daySchedule,
   isWorkDay,
   shiftStartDate,
   shiftEndDate
@@ -303,8 +290,9 @@ const processDailyAttendance = async (
       );
     }
 
-    // Calculate expected work hours in minutes for this shift
-    const expectedWorkHours = calculateExpectedWorkHours(shiftStartDate, shiftEndDate);
+    // Calculate expected work hours directly from the day schedule
+    const expectedWorkHours = daySchedule.actual_expected_minutes || 
+      calculateExpectedWorkHours(shiftStartDate, shiftEndDate);
 
     // For work days, process the logs
     if (logs.length === 0) {
@@ -343,7 +331,8 @@ const processDailyAttendance = async (
       // Find the last exit that's closest to shift end or after
       // (should be after shift end or the latest log)
       let lastExitIndex = logs.length - 1;
-
+      const workSchedule = await WorkSchedule.findById(daySchedule.time_slot_id);
+      console.log(workSchedule);
       // If we have multiple logs, try to find the most appropriate exit
       let closestToShiftEnd = Math.abs(
         logs[lastExitIndex].recordTime - shiftEndDate
@@ -403,7 +392,7 @@ const processDailyAttendance = async (
         ? Math.max(
             0,
             Math.round((firstEntry - shiftStartDate) / (1000 * 60)) -
-              workSchedule.graceTimeInMinutes
+            workSchedule.graceTimeInMinutes
           )
         : 0;
 
@@ -790,7 +779,7 @@ const processHourlyAttendanceLogs = async () => {
 
       // For each log, determine the correct shift date
       for (const log of employeeLogs) {
-        const shiftDate = determineShiftDate(log.recordTime, workSchedule);
+        const shiftDate = determineShiftDate(log.recordTime, log.deviceUserId);
         dateRangeToProcess.add(shiftDate.format("YYYY-MM-DD"));
       }
     }
@@ -858,77 +847,48 @@ const processHourlyAttendanceLogs = async () => {
  * @param {Object} workSchedule - The employee's work schedule
  * @returns {moment} - The moment object representing the correct shift date
  */
-const determineShiftDate = (timestamp, workSchedule) => {
+const determineShiftDate = async (timestamp, employeeId) => {
   const logTime = moment(timestamp);
-
-  // Parse shift start and end times
-  const [shiftStartHour, shiftStartMinute] = workSchedule.shiftStart
-    .split(":")
-    .map(Number);
-  const [shiftEndHour, shiftEndMinute] = workSchedule.shiftEnd
-    .split(":")
-    .map(Number);
-
-  // Clone the log time and set it to the current day's shift start
-  const currentDayShiftStart = logTime.clone().set({
-    hour: shiftStartHour,
-    minute: shiftStartMinute,
-    second: 0,
-    millisecond: 0,
+  const month = logTime.month() + 1;
+  const year = logTime.year();
+  
+  // Get the employee schedule for this month/year
+  const employeeSchedule = await EmployeeSchedule.findOne({
+    employee_id: employeeId,
+    month,
+    year
   });
-
-  // Clone the log time and set it to the current day's shift end
-  const currentDayShiftEnd = logTime.clone().set({
-    hour: shiftEndHour,
-    minute: shiftEndMinute,
-    second: 0,
-    millisecond: 0,
-  });
-
-  if (currentDayShiftEnd.isBefore(currentDayShiftStart)) {
-    currentDayShiftEnd.add(1, "day");
-  }
-
-  // Early window for the current day
-  const earlyWindow = currentDayShiftStart
-    .clone()
-    .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS, "hours");
-
-  // Late window for the current day
-  const lateWindow = currentDayShiftEnd
-    .clone()
-    .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS, "hours");
-
-  // If the log falls within the early window to late window of the current day
-  if (logTime.isBetween(earlyWindow, lateWindow, null, "[]")) {
+  
+  if (!employeeSchedule) {
+    // Fall back to calendar day if no schedule exists
     return logTime.clone().startOf("day");
   }
-
-  // Previous day's shift time
-  const previousDayShiftEnd = currentDayShiftEnd.clone().subtract(1, "day");
-  const previousDayLateWindow = previousDayShiftEnd
-    .clone()
-    .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS, "hours");
-
-  // If the log is within the late window of the previous day's shift
-  if (
-    logTime.isBetween(previousDayShiftEnd, previousDayLateWindow, null, "[]")
-  ) {
-    return logTime.clone().subtract(1, "day").startOf("day");
+  
+  // Check each day in the schedule to find which shift this log belongs to
+  for (const daySchedule of employeeSchedule.schedules) {
+    // Skip days off
+    if (daySchedule.isDayOff) continue;
+    
+    const shiftStartTime = moment(daySchedule.start);
+    const shiftEndTime = moment(daySchedule.end);
+    
+    // Early window for this shift
+    const earlyWindow = shiftStartTime
+      .clone()
+      .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS, "hours");
+      
+    // Late window for this shift
+    const lateWindow = shiftEndTime
+      .clone()
+      .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS, "hours");
+    
+    // If the log falls within this shift's window
+    if (logTime.isBetween(earlyWindow, lateWindow, null, "[]")) {
+      return moment(daySchedule.date).startOf("day");
+    }
   }
-
-  // Next day's shift time
-  const nextDayShiftStart = currentDayShiftStart.clone().add(1, "day");
-  const nextDayEarlyWindow = nextDayShiftStart
-    .clone()
-    .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS, "hours");
-
-  // If the log is within the early window of the next day's shift
-  if (logTime.isBetween(nextDayEarlyWindow, nextDayShiftStart, null, "[]")) {
-    return logTime.clone().add(1, "day").startOf("day");
-  }
-
-  // Default fallback - use the timestamp's date (though this case should be rare)
+  
+  // Default fallback - use the timestamp's date
   return logTime.clone().startOf("day");
 };
 
