@@ -231,19 +231,24 @@ const getAllEmployeeSchedules = async (req, res) => {
 // Update a specific day in an employee's schedule
 const updateEmployeeScheduleDay = async (req, res) => {
   try {
+    console.log('updateEmployeeScheduleDay function called', req.body); // Log start and request body
     const { schedule_id, date, isDayOff, notes, time_slot_id } = req.body;
  
 
     // Validate required fields
     if (!schedule_id || !date) {
+      console.log('Validation failed: Missing schedule_id or date'); // Log validation failure
       return errorRresponse(res, 400, "Schedule ID and date are required");
     }
+    console.log('Validation passed.'); // Log validation success
 
     // Find the schedule
     const schedule = await EmployeeSchedule.findById(schedule_id);
     if (!schedule) {
+      console.log(`Schedule not found for ID: ${schedule_id}`); // Log schedule not found
       return errorRresponse(res, 404, "Schedule not found");
     }
+    console.log(`Schedule found for ID: ${schedule_id}`); // Log schedule found
 
     // Find the specific day in the schedule
     const dayIndex = schedule.schedules.findIndex(
@@ -251,17 +256,23 @@ const updateEmployeeScheduleDay = async (req, res) => {
         moment(s.date).format("YYYY-MM-DD") ===
         moment(date).format("YYYY-MM-DD")
     );
+    console.log(`Searching for day ${moment(date).format("YYYY-MM-DD")}. Found at index: ${dayIndex}`); // Log day search result
 
     if (dayIndex === -1) {
+      console.log(`Day not found in schedule for date: ${date}`); // Log day not found
       return errorRresponse(res, 404, "Day not found in schedule");
     }
+    console.log(`Day found at index ${dayIndex}. Original day data:`, schedule.schedules[dayIndex]); // Log day found and its data
 
     // Update the day
+    console.log('Checking isDayOff:', isDayOff); // Log isDayOff check
     if (isDayOff !== undefined) {
       schedule.schedules[dayIndex].isDayOff = isDayOff;
+      console.log(`Set isDayOff to ${isDayOff}`); // Log setting isDayOff
 
       // If marking as day off, clear all scheduling-related fields
       if (isDayOff) {
+        console.log('Marking day as off. Clearing schedule fields.'); // Log clearing fields for day off
         // Keep only necessary fields for a day off
         const dateObj = moment(date).toDate();
 
@@ -272,18 +283,23 @@ const updateEmployeeScheduleDay = async (req, res) => {
         schedule.schedules[dayIndex].is_full_overtime_shift = false;
         schedule.schedules[dayIndex].actual_expected_minutes = 0;
         schedule.schedules[dayIndex].time_slot_id = null;
+        console.log('Schedule fields cleared for day off.'); // Log fields cleared
 
         // Set a note if none provided
         if (!notes) {
           schedule.schedules[dayIndex].notes = "Day off";
+          console.log('No notes provided, setting default note for day off.'); // Log default note
         }
 
         // Skip further processing since this is a day off
         if (notes) {
           schedule.schedules[dayIndex].notes = notes;
+          console.log('Notes provided for day off:', notes); // Log provided notes
         }
 
+        console.log('Saving schedule after marking as day off:', schedule.schedules[dayIndex]); // Log schedule before saving day off
         await schedule.save();
+        console.log('Schedule saved after marking as day off.'); // Log save success
 
         return successResponse(
           res,
@@ -293,15 +309,19 @@ const updateEmployeeScheduleDay = async (req, res) => {
         );
       }
     }
+    console.log('isDayOff check complete. isDayOff was:', isDayOff); // Log after isDayOff block
 
     // If time_slot_id is provided and it's not a day off, fetch the time slot details and use them
-    if (time_slot_id && !isDayOff) {
+    console.log('Checking time_slot_id and isDayOff:', { time_slot_id, isDayOff }); // Log check for time_slot_id and !isDayOff
+    if (time_slot_id && (!isDayOff || isDayOff === false)) {
+      console.log('time_slot_id provided and not a day off. Processing time slot.'); // Log entering time slot processing block
       try {
         // Find the work schedule with the given time_slot_id
         const workSchedule = await WorkSchedule.findById(time_slot_id);
-        console.log({ workSchedule }, "workSchedule");
+        console.log({ workSchedule }, "workSchedule"); // Log workSchedule details
 
         if (workSchedule) {
+          console.log('Work schedule found. Parsing times.'); // Log work schedule found
           // Parse the shiftStart and shiftEnd from the work schedule
           const [startHour, startMinute] = workSchedule.shiftStart
             .split(":")
@@ -309,6 +329,7 @@ const updateEmployeeScheduleDay = async (req, res) => {
           const [endHour, endMinute] = workSchedule.shiftEnd
             .split(":")
             .map(Number);
+          console.log(`Parsed times: startHour=${startHour}, startMinute=${startMinute}, endHour=${endHour}, endMinute=${endMinute}`); // Log parsed times
 
           // Create the date objects for start and end times
           const dateObj = moment(date);
@@ -322,6 +343,7 @@ const updateEmployeeScheduleDay = async (req, res) => {
             .hour(endHour)
             .minute(endMinute)
             .second(0);
+          console.log('Created start and end date objects:', { startDate: startDate.toDate(), endDate: endDate.toDate() }); // Log date objects
 
           // Check if end time is before start time (spans to next day)
           const dayChanged =
@@ -329,28 +351,32 @@ const updateEmployeeScheduleDay = async (req, res) => {
             (endHour === startHour && endMinute < startMinute);
           if (dayChanged) {
             endDate.add(1, "day");
+            console.log('Day changed detected. Added 1 day to end date.'); // Log day changed
           }
+          console.log('dayChanged:', dayChanged); // Log dayChanged status
 
           // Update the schedule with the calculated times
           schedule.schedules[dayIndex].start = startDate.toDate();
           schedule.schedules[dayIndex].end = endDate.toDate();
           schedule.schedules[dayIndex].day_changed = dayChanged;
           schedule.schedules[dayIndex].time_slot_id = time_slot_id;
-          schedule.schedules[dayIndex].actual_expected_minutes = endDate.diff(
-            startDate,
-            "minutes"
-          );
-          schedule.schedules[dayIndex].is_full_overtime_shift = false; // Reset this flag
+          schedule.schedules[dayIndex].actual_expected_minutes =
+                endDate.diff(startDate, "minutes");
+          schedule.schedules[dayIndex].is_full_overtime_shift = false;
+          console.log('Updated schedule fields with time slot data:', schedule.schedules[dayIndex]); // Log updated fields
 
           // Add a note about the schedule if none is provided
           if (!notes) {
             schedule.schedules[
               dayIndex
             ].notes = `Using schedule: ${workSchedule.name}`;
+            console.log('No notes provided, setting default note from work schedule.'); // Log default note from work schedule
           }
+        } else {
+           console.log(`Work schedule not found for time_slot_id: ${time_slot_id}`); // Log work schedule not found
         }
       } catch (error) {
-        console.error("Error processing time slot for schedule update:", error);
+        console.error("Error processing time slot for schedule update:", error); // Log time slot processing error
         return errorRresponse(
           res,
           500,
@@ -358,15 +384,19 @@ const updateEmployeeScheduleDay = async (req, res) => {
           error
         );
       }
+      console.log('Time slot processing complete.'); // Log end of time slot processing block
     }
 
     // Update notes if provided
+    console.log('Checking if notes are provided:', notes); // Log check for notes
     if (notes) {
       schedule.schedules[dayIndex].notes = notes;
+      console.log('Notes provided, setting notes:', notes); // Log setting notes
     }
 
-    console.log({ schedule }, "schedule save before");
+    console.log({ schedule }, "schedule save before"); // Log schedule before saving
     await schedule.save();
+    console.log('Schedule saved successfully.'); // Log save success
 
     return successResponse(
       res,
@@ -375,7 +405,7 @@ const updateEmployeeScheduleDay = async (req, res) => {
       schedule
     );
   } catch (error) {
-    console.error("Error updating employee schedule day:", error);
+    console.error("Error updating employee schedule day:", error); // Log general error
     return errorRresponse(
       res,
       500,
