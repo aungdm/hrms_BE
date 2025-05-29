@@ -232,10 +232,7 @@ const getAllEmployeeSchedules = async (req, res) => {
 const updateEmployeeScheduleDay = async (req, res) => {
   try {
     const { schedule_id, date, isDayOff, notes, time_slot_id } = req.body;
-    console.log(
-      { schedule_id, date, isDayOff, notes, time_slot_id },
-      "updateEmployeeScheduleDay"
-    );
+ 
 
     // Validate required fields
     if (!schedule_id || !date) {
@@ -302,6 +299,7 @@ const updateEmployeeScheduleDay = async (req, res) => {
       try {
         // Find the work schedule with the given time_slot_id
         const workSchedule = await WorkSchedule.findById(time_slot_id);
+        console.log({ workSchedule }, "workSchedule");
 
         if (workSchedule) {
           // Parse the shiftStart and shiftEnd from the work schedule
@@ -367,6 +365,7 @@ const updateEmployeeScheduleDay = async (req, res) => {
       schedule.schedules[dayIndex].notes = notes;
     }
 
+    console.log({ schedule }, "schedule save before");
     await schedule.save();
 
     return successResponse(
