@@ -12,9 +12,9 @@
 
 // Default configurations in case environment variables are not set
 const defaultMachines = [
-  { ip: "192.168.1.128", port: 4370, timeout: 10000, name: "Machine 1" },
-  { ip: "192.168.1.101", port: 4370, timeout: 10000, name: "Machine 2" },
-  { ip: "192.168.1.102", port: 4370, timeout: 10000, name: "Machine 3" }
+  { ip: "116.0.46.13", port: 4370, timeout: 10000, name: "Machine 1" },
+  { ip: "116.0.46.12", port: 4370, timeout: 10000, name: "Machine 2" },
+  { ip: "116.0.46.14", port: 4370, timeout: 10000, name: "Machine 3" }
 ];
 
 /**
@@ -45,7 +45,7 @@ const getAttendanceMachines = () => {
   return [
     loadMachineConfig(1),
     loadMachineConfig(2),
-    loadMachineConfig(3)
+    // loadMachineConfig(3)
   ];
 };
 

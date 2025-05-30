@@ -43,50 +43,70 @@ const syncMachineLogs = async (machine) => {
     console.log(`Starting attendance sync for ${machine.name} (${machine.ip})...`);
     await zkInstance.createSocket();
 
-    const logs = await zkInstance.getAttendances();
-    if (!logs || !logs.data || !Array.isArray(logs.data)) {
-      console.log(`No valid data received from ${machine.name} (${machine.ip})`);
-      return 0;
-    }
+    // Wrap data fetching and initial processing in a nested try-catch
+    try {
+      const logs = await zkInstance.getAttendances();
+      console.log({ logs }, "logs");
+      if (!logs || !logs.data || !Array.isArray(logs.data)) {
+        console.log(`No valid data received from ${machine.name} (${machine.ip})`);
+        return 0;
+      }
 
-    // Get the latest log timestamp from our database for this device
-    const latestLog = await AttendanceLog.findOne(
-      { deviceId: machine.ip },
-      {},
-      { sort: { recordTime: -1 } }
-    );
-    const latestTimestamp = latestLog ? latestLog.recordTime : new Date(0);
-
-    // Filter and prepare new logs
-    const newLogs = logs.data
-      .filter((log) => new Date(log.recordTime) > latestTimestamp)
-      .map((log) => ({
-        deviceUserId: log.deviceUserId,
-        recordTime: new Date(log.recordTime),
-        deviceId: machine.ip,
-        syncedAt: new Date(),
-        isProcessed: false,
-      }));
-
-    if (newLogs.length > 0) {
-      // Use bulkWrite for efficient batch insertion
-      await AttendanceLog.bulkWrite(
-        newLogs.map((log) => ({
-          updateOne: {
-            filter: {
-              deviceUserId: log.deviceUserId,
-              recordTime: log.recordTime,
-              deviceId: machine.ip
-            },
-            update: { $setOnInsert: log },
-            upsert: true,
-          },
-        }))
+      // Get the latest log timestamp from our database for this device
+      const latestLog = await AttendanceLog.findOne(
+        { deviceId: machine.ip },
+        {},
+        { sort: { recordTime: -1 } }
       );
-      console.log(`Synced ${newLogs.length} new attendance records from ${machine.name} (${machine.ip})`);
-      return newLogs.length;
-    } else {
-      console.log(`No new attendance records to sync from ${machine.name} (${machine.ip})`);
+      const latestTimestamp = latestLog ? latestLog.recordTime : new Date(0);
+
+      // Filter and prepare new logs
+      const newLogs = logs.data
+        .filter((log) => new Date(log.recordTime) > latestTimestamp)
+        .map((log) => ({
+          deviceUserId: log.deviceUserId,
+          recordTime: new Date(log.recordTime),
+          deviceId: machine.ip,
+          syncedAt: new Date(),
+          isProcessed: false,
+        }));
+
+      if (newLogs.length > 0) {
+        console.log({newLogs})
+        // Use bulkWrite for efficient batch insertion
+        // try {
+          await AttendanceLog.bulkWrite(
+            newLogs.map((log) => ({
+              updateOne: {
+                filter: {
+                  deviceUserId: log.deviceUserId,
+                  recordTime: log.recordTime,
+                  deviceId: machine.ip
+                },
+                update: { $setOnInsert: log },
+                upsert: true,
+              },
+            }))
+          );
+          console.log(`Synced ${newLogs.length} new attendance records from ${machine.name} (${machine.ip})`);
+          return newLogs.length;
+        // } catch (error) {
+        //   if (error.code === 11000) {
+        //     console.warn(`Skipping duplicate attendance records for ${machine.name} (${machine.ip}):`, error.message);
+        //     // Optionally, you could try to insert non-duplicates here if needed,
+        //     // but for simplicity, we'll just log and continue.
+        //     return 0; // No new records successfully inserted in this case
+        //   } else {
+        //     // Re-throw other errors
+        //     throw error;
+        //   }
+        // }
+      } else {
+        console.log(`No new attendance records to sync from ${machine.name} (${machine.ip})`);
+        return 0;
+      }
+    } catch (error) {
+      console.error(`Error during attendance sync for ${machine.name} (${machine.ip}):`, error);
       return 0;
     }
   } catch (error) {

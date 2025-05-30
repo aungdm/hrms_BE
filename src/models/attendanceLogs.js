@@ -30,6 +30,6 @@ const AttendanceLogSchema = new mongoose.Schema({
 });
 
 // Compound index for efficient querying
-AttendanceLogSchema.index({ deviceUserId: 1, recordTime: 1 }, { unique: true });
+// AttendanceLogSchema.index({ deviceUserId: 1, recordTime: 1 }, { unique: true });
 
 module.exports = mongoose.model("AttendanceLog", AttendanceLogSchema); 
