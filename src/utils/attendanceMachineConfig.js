@@ -45,7 +45,7 @@ const getAttendanceMachines = () => {
   return [
     loadMachineConfig(1),
     loadMachineConfig(2),
-    // loadMachineConfig(3)
+    loadMachineConfig(3)
   ];
 };
 
