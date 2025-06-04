@@ -21,6 +21,9 @@ const CONFIG = {
   // Default lookback period when no LastProcessedTime is found
   DEFAULT_LOOKBACK_HOURS: 24,
 
+  // grace time for overtime which defines that how much minute will be required to start considering the overtime
+  OVERTIME_GRACE_TIME: 10,
+
   // Process status tracking in DB
   PROCESS_TRACKING_COLLECTION: "ProcessTracking",
   ATTENDANCE_PROCESS_ID: "hourlyAttendanceProcessor",
@@ -315,7 +318,10 @@ const processDailyAttendance = async (
     let earlyDeparture = 0;
     let checkoutStatus = "Absent"; // Default for single log
     let isOverTime = false;
- 
+    let overTimeMinutes = 0;
+    let overTimeStatus = null;
+    let relaxationRequest = false;
+    let relaxationRequestStatus = null;
 
     const workSchedule = await WorkSchedule.findById(daySchedule.time_slot_id);
     if (logs.length > 1) {
@@ -413,8 +419,6 @@ const processDailyAttendance = async (
     // Handle overtime related fields
     let overtTimeStart = null;
     let overtTimeEnd = null;
-    let overTimeMinutes = 0;
-    let overTimeStatus = null;
 
     // If overtime is detected
     if (lastExit && lastExit > shiftEndDate) {
@@ -427,6 +431,12 @@ const processDailyAttendance = async (
       overTimeMinutes = Math.round((lastExit - shiftEndDate) / (1000 * 60));
       // Set initial status to Pending
       overTimeStatus = "Pending";
+    }
+
+    // Determine if relaxation request is needed
+    if (firstEntry && lastExit && (lateArrival > 1 || earlyDeparture > 0)) {
+      relaxationRequest = true;
+      relaxationRequestStatus = "Pending";
     }
 
     // Create or update the attendance record
@@ -449,7 +459,9 @@ const processDailyAttendance = async (
       overtTimeStart,  // New field: overtime start time
       overtTimeEnd,    // New field: overtime end time
       overTimeMinutes, // New field: overtime minutes
-      overTimeStatus   // New field: overtime approval status
+      overTimeStatus,  // New field: overtime approval status
+      relaxationRequest, // New field: relaxation request status
+      relaxationRequestStatus // New field: relaxation request approval status
     );
   // } catch (error) {
   //   console.error("Error in processDailyAttendance:", error);
@@ -492,7 +504,9 @@ const createOrUpdateDailyAttendance = async (
   overtTimeStart,
   overtTimeEnd,
   overTimeMinutes,
-  overTimeStatus
+  overTimeStatus,
+  relaxationRequest,
+  relaxationRequestStatus
 ) => {
   // Get date with time set to midnight
   const dayDate = new Date(date);
@@ -535,6 +549,8 @@ const createOrUpdateDailyAttendance = async (
           overtTimeEnd,
           overTimeMinutes,
           overTimeStatus,
+          relaxationRequest,
+          relaxationRequestStatus,
         },
         { new: true }
       );
@@ -585,6 +601,8 @@ const createOrUpdateDailyAttendance = async (
         overtTimeEnd,
         overTimeMinutes,
         overTimeStatus,
+        relaxationRequest,
+        relaxationRequestStatus,
       });
       
       await newRecord.save();

@@ -226,6 +226,7 @@ const updatePunchStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+     console.log({ status }, "status" , req.body);
 
     if (!status || !["Pending", "Approved", "Rejected"].includes(status)) {
       return errorRresponse(

@@ -77,6 +77,15 @@ const DailyAttendanceSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    relaxationRequest: {
+      type: Boolean,
+      default: false,
+    },
+    relaxationRequestStatus: {
+      type: String,
+      enum: ["Approved", "Reject", "Pending"],
+      default: "Pending",
+    },
     approvedOverTime: {
       type: Boolean,
       default: false,

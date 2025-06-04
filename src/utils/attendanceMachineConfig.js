@@ -51,4 +51,4 @@ const getAttendanceMachines = () => {
 
 module.exports = {
   getAttendanceMachines
-}; 
+};  

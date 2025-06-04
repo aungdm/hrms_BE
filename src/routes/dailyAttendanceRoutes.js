@@ -8,7 +8,10 @@ const {
   approveOvertime,
   getOvertimeRecords,
   updateRecord,
-  updateOvertimeDetails
+  updateOvertimeDetails,
+  updateRelaxationRequest,
+  getRelaxationRequests,
+  getRelaxationRequestStats
 } = require("../controllers/dailyAttendanceController");
 
 // Routes for daily attendance
@@ -22,5 +25,10 @@ router.put("/update/:id", updateRecord);
 router.get("/overtime", getOvertimeRecords);
 router.patch("/overtime/:id/approve", approveOvertime);
 router.patch("/overtime/:id/details", updateOvertimeDetails);
+
+// Relaxation request routes
+router.patch("/relaxation/:id/request", updateRelaxationRequest);
+router.get("/relaxation", getRelaxationRequests);
+router.get("/relaxation/statistics", getRelaxationRequestStats);
 
 module.exports = router; 

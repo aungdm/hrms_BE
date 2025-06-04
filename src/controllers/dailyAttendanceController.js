@@ -3,6 +3,7 @@ const DailyAttendance = require("../models/dailyAttendance");
 // const { processAttendanceLogs } = require("../utils/attendanceProcessor");
 const cron = require("node-cron");
 const moment = require("moment");
+const Employee = require("../models/employee");
 
 // Schedule to run the processor every day at midnight
 // cron.schedule("0 0 * * *", async () => {
@@ -822,9 +823,6 @@ const updateRecord = async (req, res) => {
   }
 };
 
-
-
-
 // Update overtime details
 const updateOvertimeDetails = async (req, res) => {
   try {
@@ -918,6 +916,428 @@ const updateOvertimeDetails = async (req, res) => {
   }
 };
 
+const updateRelaxationRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+    console.log({ updateData });
+
+    // Find the record
+    const record = await DailyAttendance.findById(id);
+    if (!record) {
+      return errorRresponse(res, 404, "Attendance record not found");
+    }
+
+    // Validate date format if provided
+    if (updateData.date) {
+      if (!moment(updateData.date, moment.ISO_8601, true).isValid()) {
+        return errorRresponse(res, 400, "Invalid date format");
+      }
+    }
+
+    // Mark record as manually updated - always set for any manual edit
+    updateData.isManuallyUpdated = true;
+
+    // Process firstEntry and lastExit timestamps
+    if (updateData.firstEntry && typeof updateData.firstEntry === "string") {
+      updateData.firstEntry = new Date(updateData.firstEntry);
+    }
+
+    if (updateData.lastExit && typeof updateData.lastExit === "string") {
+      updateData.lastExit = new Date(updateData.lastExit);
+    }
+
+    // --- Relaxation Request Handling ---
+    // If relaxationRequestStatus is being updated to Approved or Reject,
+    // ensure the relaxationRequest flag remains true if it was already true.
+    // This indicates a request was processed for this record.
+    if (updateData.relaxationRequestStatus && (updateData.relaxationRequestStatus === 'Approved' || updateData.relaxationRequestStatus === 'Reject')) {
+        if (record.relaxationRequest) {
+            updateData.relaxationRequest = true; // Keep the flag true if a request was made
+        }
+        // The relaxationRequestStatus from updateData will be used by $set below
+    }
+    // If relaxationRequestStatus is being set to Pending (e.g., manual edit)
+    else if (updateData.relaxationRequestStatus === 'Pending') {
+         // Ensure relaxationRequest is true if status is Pending
+         updateData.relaxationRequest = true;
+    }
+    // If relaxationRequestStatus is being cleared or not provided in updateData,
+    // recalculate relaxationRequest based on late/early times after other updates.
+    // This case is handled later if firstEntry/lastExit are updated.
+
+    // If status is changed to Absent or Day Off, clear entry/exit times and related fields
+    if (updateData.status === "Absent" || updateData.status === "Day Off") {
+      updateData.firstEntry = null;
+      updateData.lastExit = null;
+      updateData.workDuration = 0;
+      updateData.lateArrival = 0;
+      updateData.earlyDeparture = 0;
+      updateData.isOverTime = false;
+
+      // Clear overtime fields
+      updateData.overtTimeStart = null;
+      updateData.overtTimeEnd = null;
+      updateData.overTimeMinutes = 0;
+      updateData.overTimeStatus = null;
+
+      // Also clear relaxation request fields if marked as Absent/Day Off
+      updateData.relaxationRequest = false;
+      updateData.relaxationRequestStatus = null;
+
+      // Set appropriate status for check-in/check-out
+      if (updateData.status === "Absent") {
+        updateData.checkinStatus = "Absent";
+        updateData.checkoutStatus = "Absent";
+      } else if (updateData.status === "Day Off") {
+        updateData.checkinStatus = "Day Off";
+        updateData.checkoutStatus = "Day Off";
+      }
+    }
+    // If we have both entry and exit times, recalculate work duration and other metrics
+    else if (updateData.firstEntry && updateData.lastExit) {
+      // Calculate work duration in minutes
+
+      let first = new Date(updateData.firstEntry);
+      let last = new Date(updateData.lastExit);
+
+      // Add 1 day to lastExitTime if it is earlier than firstEntryTime
+      if (first > last) {
+        last.setDate(last.getDate() + 1);
+      }
+
+      const workDurationMinutes = Math.round((last - first) / (1000 * 60));
+
+      console.log({ workDurationMinutes }, "workDurationMinutes");
+
+      updateData.workDuration = Math.round((last - first) / (1000 * 60));
+
+      // Check if late arrival (if expected check-in time exists)
+      if (record.expectedCheckinTime) {
+        updateData.lateArrival =
+          updateData.firstEntry > record.expectedCheckinTime
+            ? Math.round(
+                (updateData.firstEntry - record.expectedCheckinTime) /
+                  (1000 * 60)
+              )
+            : 0;
+      }
+
+      // Check if early departure (if expected check-out time exists)
+      if (record.expectedCheckoutTime) {
+        updateData.earlyDeparture =
+          updateData.lastExit < record.expectedCheckoutTime
+            ? Math.round(
+                (record.expectedCheckoutTime - updateData.lastExit) /
+                  (1000 * 60)
+              )
+            : 0;
+      }
+
+      // Check if overtime (if expected check-out time exists)
+      if (record.expectedCheckoutTime) {
+        updateData.isOverTime =
+          updateData.lastExit > record.expectedCheckoutTime;
+
+        // Handle overtime fields if overtime is detected
+        if (updateData.isOverTime) {
+          // The overtime starts at the end of the scheduled shift
+          updateData.overtTimeStart = record.expectedCheckoutTime;
+          // The overtime ends at the last exit time
+          updateData.overtTimeEnd = updateData.lastExit;
+          // Calculate overtime minutes
+          updateData.overTimeMinutes = Math.round(
+            (updateData.lastExit - record.expectedCheckoutTime) / (1000 * 60)
+          );
+          // If not already set, set initial status to Pending
+          if (!record.overTimeStatus || record.overTimeStatus === "Reject") {
+            updateData.overTimeStatus = "Pending";
+          }
+        } else {
+          // Clear overtime fields if there's no overtime
+          updateData.overtTimeStart = null;
+          updateData.overtTimeEnd = null;
+          updateData.overTimeMinutes = 0;
+          updateData.overTimeStatus = null;
+        }
+
+        if (!updateData.isOverTime) {
+          // Clear overtime fields if there's no overtime
+          updateData.overtTimeStart = null;
+          updateData.overtTimeEnd = null;
+          updateData.overTimeMinutes = 0;
+          updateData.overTimeStatus = null;
+        }
+      }
+    }
+
+    // Update checkin/checkout status based on times
+    if (updateData.firstEntry && record.expectedCheckinTime) {
+      const minutesDiff = Math.round(
+        (updateData.firstEntry - record.expectedCheckinTime) / (1000 * 60)
+      );
+      console.log({ minutesDiff }, "minutesDiff for checkin");
+      if (minutesDiff > 1) {
+        updateData.checkinStatus = "Late";
+      } else if (minutesDiff < -10) {
+        // More than 10 mins early
+        updateData.checkinStatus = "Early";
+      } else {
+        updateData.checkinStatus = "On Time";
+      }
+    }
+
+    if (updateData.lastExit && record.expectedCheckoutTime) {
+      // const expectedCheckoutTime = new Date(record.expectedCheckoutTime);
+      // const lastExit = new Date(updateData.lastExit);
+      // const newLastExit = new Date(lastExit); // Clone before modifying
+
+      // if (expectedCheckoutTime > lastExit) {
+      //   console.log("expectedCheckoutTime is greater than lastExit");
+      //   newLastExit.setDate(newLastExit.getDate() + 1);
+      // }
+
+      console.log(
+        { expectedCheckoutTime: record.expectedCheckoutTime },
+        { lastExit: updateData.lastExit },
+        "newLastExit"
+      );
+      const minutesDiff = Math.round(
+        (updateData.lastExit - record.expectedCheckoutTime) / (1000 * 60)
+      );
+      console.log({ minutesDiff }, "minutesDiff for checkout");
+      if (minutesDiff < 0) {
+        updateData.checkoutStatus = "Early";
+      } else if (minutesDiff > 10) {
+        // More than 10 mins late
+        updateData.checkoutStatus = "Late";
+      } else {
+        updateData.checkoutStatus = "On Time";
+      }
+    }
+
+    // Generate updated remarks
+    if (
+      updateData.firstEntry !== undefined ||
+      updateData.lastExit !== undefined ||
+      updateData.status !== undefined
+    ) {
+      const statusForRemarks = updateData.status || record.status;
+      const lateArrivalForRemarks =
+        updateData.lateArrival !== undefined
+          ? updateData.lateArrival
+          : record.lateArrival;
+      const earlyDepartureForRemarks =
+        updateData.earlyDeparture !== undefined
+          ? updateData.earlyDeparture
+          : record.earlyDeparture;
+      const checkinStatusForRemarks =
+        updateData.checkinStatus || record.checkinStatus;
+      const checkoutStatusForRemarks =
+        updateData.checkoutStatus || record.checkoutStatus;
+      const workDurationForRemarks =
+        updateData.workDuration !== undefined
+          ? updateData.workDuration
+          : record.workDuration;
+      const expectedWorkHoursForRemarks = record.expectedWorkHours;
+      const isOverTimeForRemarks =
+        updateData.isOverTime !== undefined
+          ? updateData.isOverTime
+          : record.isOverTime;
+
+      const attendanceProcessor = require("../utils/attendanceProcessor");
+      updateData.remarks = attendanceProcessor.generateRemarks(
+        statusForRemarks,
+        lateArrivalForRemarks,
+        earlyDepartureForRemarks,
+        checkinStatusForRemarks,
+        checkoutStatusForRemarks,
+        workDurationForRemarks,
+        expectedWorkHoursForRemarks,
+        isOverTimeForRemarks
+      );
+
+      // Add a note about manual update
+      updateData.remarks += ". This record was manually updated.";
+
+      // Add specific note for Day Off
+      if (updateData.status === "Day Off") {
+        updateData.remarks +=
+          " Marked as Day Off (holiday or scheduled leave).";
+      }
+    }
+
+    console.log({ updateData });
+    // Update the record with all the calculated values
+    const updatedRecord = await DailyAttendance.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true }
+    ).populate("employeeId", "name user_defined_code department designation");
+
+    return successResponse(
+      res,
+      200,
+      "Attendance record updated successfully",
+      updatedRecord
+    );
+  } catch (error) {
+    console.error("Error updating attendance record:", error);
+    return errorRresponse(res, 500, "Error updating attendance record", error);
+  }
+};
+
+// Get relaxation request records
+const getRelaxationRequests = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      perPage = 10,
+      startDate,
+      endDate,
+      employeeId,
+      search,
+      approvalFilter // This will map to relaxationRequestStatus
+    } = req.query;
+
+    const query = { relaxationRequest: true };
+
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) query.date.$gte = new Date(startDate);
+      if (endDate) query.date.$lte = new Date(endDate);
+    }
+
+    if (employeeId) query.employeeId = employeeId;
+
+    if (approvalFilter && approvalFilter.toLowerCase() !== 'all') {
+        // Map frontend filter value to backend enum value
+        let backendStatus = approvalFilter;
+        if (approvalFilter.toLowerCase() === 'rejected') {
+             backendStatus = 'Reject'; // Assuming backend uses 'Reject'
+        }
+         query.relaxationRequestStatus = backendStatus;
+    }
+
+     // Handle search by employee name or ID
+    if (search) {
+        const employees = await Employee.find({
+            $or: [
+                { name: { $regex: search, $options: 'i' } },
+                { user_defined_code: { $regex: search, $options: 'i' } }
+            ]
+        }).select('_id');
+        const employeeIds = employees.map(emp => emp._id);
+        
+        if(employeeIds.length > 0) {
+             // Add to existing query with an AND condition
+             query.employeeId = { $in: employeeIds };
+        } else {
+             // If no employees found by search, return empty result
+             return successResponse(res, 200, "Data Fetched Successfully", {
+                  data: [],
+                  meta: {
+                       total: 0,
+                       page: Number(page),
+                       perPage: Number(perPage),
+                       totalPages: 0,
+                  },
+             });
+        }
+    }
+
+    const [records, total] = await Promise.all([
+      DailyAttendance.find(query)
+        .populate("employeeId", "name user_defined_code department designation") // Populate employee details
+        .sort({ date: -1 }) // Sort by date descending
+        .skip((page - 1) * perPage)
+        .limit(perPage),
+      DailyAttendance.countDocuments(query),
+    ]);
+
+     // No need to enhance records here as relaxationRequest and relaxationRequestStatus are already fields
+
+    return successResponse(res, 200, "Data Fetched Successfully", {
+      data: records,
+      meta: {
+        total,
+        page: Number(page),
+        perPage: Number(perPage),
+        totalPages: Math.ceil(total / perPage),
+      },
+    });
+
+  } catch (error) {
+    console.error("Error fetching relaxation request records:", error);
+    return errorRresponse(
+      res,
+      500,
+      "Error fetching relaxation request records",
+      error
+    );
+  }
+};
+
+// Get relaxation request statistics for a date range
+const getRelaxationRequestStats = async (req, res) => {
+    try {
+        const { startDate, endDate, employeeId } = req.query;
+
+        const query = { relaxationRequest: true };
+
+        if (startDate || endDate) {
+            query.date = {};
+            if (startDate) query.date.$gte = new Date(startDate);
+            if (endDate) query.date.$lte = new Date(endDate);
+        }
+
+        if (employeeId) query.employeeId = employeeId;
+
+        // Aggregate statistics by relaxationRequestStatus
+        const stats = await DailyAttendance.aggregate([
+            { $match: query },
+            {
+                $group: {
+                    _id: "$relaxationRequestStatus",
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        // Format the results
+        const formattedStats = {
+            totalRecords: 0,
+            totalPendingRecords: 0,
+            totalApprovedRecords: 0,
+            totalRejectedRecords: 0,
+        };
+
+        stats.forEach(item => {
+            formattedStats.totalRecords += item.count;
+            if (item._id === 'Pending') {
+                formattedStats.totalPendingRecords = item.count;
+            } else if (item._id === 'Approved') {
+                formattedStats.totalApprovedRecords = item.count;
+            } else if (item._id === 'Reject') {
+                formattedStats.totalRejectedRecords = item.count;
+            }
+        });
+
+        return successResponse(res, 200, "Relaxation Request Statistics Fetched Successfully", {
+            relaxationRequestStats: formattedStats
+        });
+
+    } catch (error) {
+        console.error("Error fetching relaxation request statistics:", error);
+        return errorRresponse(
+            res,
+            500,
+            "Error fetching relaxation request statistics",
+            error
+        );
+    }
+};
+
 module.exports = {
   processLogs,
   getRecords,
@@ -927,4 +1347,7 @@ module.exports = {
   getOvertimeRecords,
   updateRecord,
   updateOvertimeDetails,
+  updateRelaxationRequest,
+  getRelaxationRequests,
+  getRelaxationRequestStats
 };
