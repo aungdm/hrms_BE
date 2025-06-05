@@ -206,3 +206,4 @@ const PayRollSchema = new mongoose.Schema(
 PayRollSchema.index({ employeeId: 1, startDate: 1, endDate: 1 });
 
 module.exports = mongoose.model("PayRoll", PayRollSchema);
+

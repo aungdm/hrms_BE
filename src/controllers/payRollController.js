@@ -78,8 +78,8 @@ const generatePayroll = async (req, res) => {
         
         // Generate payroll based on employee type
         const payroll = isHourly
-          ? await generateHourlyPayroll(employee, attendanceRecords, startDateObj, endDateObj)
-          : await generateMonthlyPayroll(employee, attendanceRecords, startDateObj, endDateObj);
+          ? await generateHourlyPayroll(employee, attendanceRecords, startDateObj, endDateObj, req)
+          : await generateMonthlyPayroll(employee, attendanceRecords, startDateObj, endDateObj, req);
         
         // Save the payroll
         const newPayroll = new PayRoll(payroll);
@@ -111,7 +111,7 @@ const generatePayroll = async (req, res) => {
 /**
  * Generate payroll for hourly employees based on attendance records
  */
-const generateHourlyPayroll = async (employee, attendanceRecords, startDate, endDate) => {
+const generateHourlyPayroll = async (employee, attendanceRecords, startDate, endDate, req) => {
   // Define constants
   const WORKING_DAYS_PER_MONTH = 26;
   const SHIFT_HOURS = employee.shiftHours || 8; // Default to 8 if not specified
@@ -354,7 +354,7 @@ const generateHourlyPayroll = async (employee, attendanceRecords, startDate, end
 /**
  * Generate payroll for monthly salaried employees based on attendance records
  */
-const generateMonthlyPayroll = async (employee, attendanceRecords, startDate, endDate) => {
+const generateMonthlyPayroll = async (employee, attendanceRecords, startDate, endDate, req) => {
   // Define constants
   const DAYS_PER_MONTH = 30; // For monthly salary calculations
   
@@ -845,3 +845,4 @@ module.exports = {
   getPayrollSummary,
   generatePayrollPdf
 };
+

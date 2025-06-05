@@ -30,3 +30,4 @@ router.get("/summary", payRollController.getPayrollSummary);
 router.get("/:id/pdf", payRollController.generatePayrollPdf);
 
 module.exports = router;
+
