@@ -4,6 +4,7 @@ const Employee = require("../models/employee");
 const DailyAttendance = require("../models/dailyAttendance");
 const { updateRecord } = require("./dailyAttendanceController");
 const moment = require("moment");
+const { calculateOvertimeDetails } = require("../utils/attendanceProcessor");
 
 // Create a new punch request
 const createPunch = async (req, res) => {
@@ -390,36 +391,27 @@ const updatePunchStatus = async (req, res) => {
 
           // Check if overtime (if expected check-out time exists)
           if (record.expectedCheckoutTime) {
-            updateData.isOverTime =
-              updateData.lastExit > record.expectedCheckoutTime;
-
-            // Handle overtime fields if overtime is detected
+            // Use the new calculateOvertimeDetails function for overtime calculation
+            const overtimeDetails = calculateOvertimeDetails(
+              updateData.firstEntry,
+              updateData.lastExit,
+              record.expectedCheckinTime,
+              record.expectedCheckoutTime
+            );
+            
+            updateData.isOverTime = overtimeDetails.isOverTime;
+            
             if (updateData.isOverTime) {
-              // The overtime starts at the end of the scheduled shift
-              updateData.overtTimeStart = record.expectedCheckoutTime;
-              // The overtime ends at the last exit time
-              updateData.overtTimeEnd = updateData.lastExit;
-              // Calculate overtime minutes
-              updateData.overTimeMinutes = Math.round(
-                (updateData.lastExit - record.expectedCheckoutTime) /
-                  (1000 * 60)
-              );
-              // If not already set, set initial status to Pending
-              if (
-                !record.overTimeStatus ||
-                record.overTimeStatus === "Reject"
-              ) {
+              // Apply overtime details
+              updateData.overtTimeStart = overtimeDetails.overtimeStart;
+              updateData.overtTimeEnd = overtimeDetails.overtimeEnd;
+              updateData.overTimeMinutes = overtimeDetails.overtimeMinutes;
+              
+              // Keep existing status if available, otherwise set to Pending
+              if (!record.overTimeStatus || record.overTimeStatus === "Reject") {
                 updateData.overTimeStatus = "Pending";
               }
             } else {
-              // Clear overtime fields if there's no overtime
-              updateData.overtTimeStart = null;
-              updateData.overtTimeEnd = null;
-              updateData.overTimeMinutes = 0;
-              updateData.overTimeStatus = null;
-            }
-
-            if (!updateData.isOverTime) {
               // Clear overtime fields if there's no overtime
               updateData.overtTimeStart = null;
               updateData.overtTimeEnd = null;

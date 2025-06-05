@@ -23,6 +23,9 @@ const CONFIG = {
 
   // grace time for overtime which defines that how much minute will be required to start considering the overtime
   OVERTIME_GRACE_TIME: 10,
+  
+  // New constant for overtime threshold (minutes)
+  OVERTIME_THRESHOLD_MINUTES: 10,
 
   // Process status tracking in DB
   PROCESS_TRACKING_COLLECTION: "ProcessTracking",
@@ -320,6 +323,8 @@ const processDailyAttendance = async (
     let isOverTime = false;
     let overTimeMinutes = 0;
     let overTimeStatus = null;
+    let overtTimeStart = null;
+    let overtTimeEnd = null;
     let relaxationRequest = false;
     let relaxationRequestStatus = null;
 
@@ -374,8 +379,23 @@ const processDailyAttendance = async (
         }
       }
 
-      // Determine if overtime (if lastExit exceeds expectedCheckoutTime)
-      isOverTime = lastExit > shiftEndDate;
+      // Use the new calculateOvertimeDetails function to determine overtime
+      const overtimeDetails = calculateOvertimeDetails(
+        firstEntry,
+        lastExit,
+        shiftStartDate,
+        shiftEndDate
+      );
+
+      // Update overtime-related variables with the results from calculateOvertimeDetails
+      isOverTime = overtimeDetails.isOverTime;
+      overTimeMinutes = overtimeDetails.overtimeMinutes;
+      
+      if (isOverTime) {
+        overtTimeStart = overtimeDetails.overtimeStart;
+        overtTimeEnd = overtimeDetails.overtimeEnd;
+        overTimeStatus = "Pending"; // Default status for new overtime
+      }
     }
     // Check if late (considering grace period)
     const lateArrival =
@@ -414,23 +434,6 @@ const processDailyAttendance = async (
       if (earlyMinutes > 30) {
         checkinStatus = "Early";
       }
-    }
-
-    // Handle overtime related fields
-    let overtTimeStart = null;
-    let overtTimeEnd = null;
-
-    // If overtime is detected
-    if (lastExit && lastExit > shiftEndDate) {
-      isOverTime = true;
-      // The overtime starts at the end of the scheduled shift
-      overtTimeStart = shiftEndDate;
-      // The overtime ends at the last exit time
-      overtTimeEnd = lastExit;
-      // Calculate overtime minutes
-      overTimeMinutes = Math.round((lastExit - shiftEndDate) / (1000 * 60));
-      // Set initial status to Pending
-      overTimeStatus = "Pending";
     }
 
     // Determine if relaxation request is needed
@@ -945,8 +948,97 @@ const updateLastProcessedTime = async (timestamp) => {
   }
 };
 
+/**
+ * Calculate overtime details based on entry/exit times and shift schedule
+ * This implements the refined overtime calculation logic:
+ * - Only count overtime if last exit exceeds shift end by more than threshold minutes
+ * - Only count early arrival as overtime if first entry is more than threshold minutes before shift start
+ * - Combine both early and late overtime if applicable
+ * 
+ * @param {Date} firstEntry - Employee's first entry time
+ * @param {Date} lastExit - Employee's last exit time
+ * @param {Date} shiftStartTime - Expected shift start time
+ * @param {Date} shiftEndTime - Expected shift end time
+ * @returns {Object} - Object containing overtime details: isOverTime, overtimeMinutes, overtimeStart, overtimeEnd, etc.
+ */
+const calculateOvertimeDetails = (firstEntry, lastExit, shiftStartTime, shiftEndTime) => {
+  // Initialize result object
+  const result = {
+    isOverTime: false,
+    overtimeMinutes: 0,
+    earlyOvertimeMinutes: 0,
+    lateOvertimeMinutes: 0,
+    overtimeStart: null,
+    overtimeEnd: null,
+    earlyOvertimeStart: null,
+    earlyOvertimeEnd: null,
+    lateOvertimeStart: null,
+    lateOvertimeEnd: null
+  };
+
+  // If any of the required times are missing, return default (no overtime)
+  if (!firstEntry || !lastExit || !shiftStartTime || !shiftEndTime) {
+    return result;
+  }
+
+  // Calculate minutes before shift start (early arrival)
+  const minutesBeforeShiftStart = firstEntry < shiftStartTime
+    ? Math.round((shiftStartTime - firstEntry) / (1000 * 60))
+    : 0;
+
+  // Calculate minutes after shift end (late departure)
+  const minutesAfterShiftEnd = lastExit > shiftEndTime
+    ? Math.round((lastExit - shiftEndTime) / (1000 * 60))
+    : 0;
+
+  // Early overtime is only applicable if arrived more than threshold minutes before shift
+  let earlyOvertimeMinutes = 0;
+  if (minutesBeforeShiftStart > CONFIG.OVERTIME_THRESHOLD_MINUTES) {
+    earlyOvertimeMinutes = minutesBeforeShiftStart;
+    result.earlyOvertimeStart = firstEntry;
+    result.earlyOvertimeEnd = new Date(shiftStartTime.getTime() - (CONFIG.OVERTIME_THRESHOLD_MINUTES * 60 * 1000));
+  }
+
+  // Late overtime is only applicable if departed more than threshold minutes after shift
+  let lateOvertimeMinutes = 0;
+  if (minutesAfterShiftEnd > CONFIG.OVERTIME_THRESHOLD_MINUTES) {
+    lateOvertimeMinutes = minutesAfterShiftEnd;
+    result.lateOvertimeStart = new Date(shiftEndTime.getTime() + (CONFIG.OVERTIME_THRESHOLD_MINUTES * 60 * 1000));
+    result.lateOvertimeEnd = lastExit;
+  }
+
+  // Total overtime minutes is the sum of early and late overtime
+  const totalOvertimeMinutes = earlyOvertimeMinutes + lateOvertimeMinutes;
+
+  // Only set isOverTime true if there's actual overtime
+  if (totalOvertimeMinutes > 0) {
+    result.isOverTime = true;
+    result.overtimeMinutes = totalOvertimeMinutes;
+    result.earlyOvertimeMinutes = earlyOvertimeMinutes;
+    result.lateOvertimeMinutes = lateOvertimeMinutes;
+    
+    // Set overall overtime period if applicable
+    if (earlyOvertimeMinutes > 0 && lateOvertimeMinutes > 0) {
+      // Both early and late overtime
+      result.overtimeStart = result.earlyOvertimeStart;
+      result.overtimeEnd = result.lateOvertimeEnd;
+    } else if (earlyOvertimeMinutes > 0) {
+      // Only early overtime
+      result.overtimeStart = result.earlyOvertimeStart;
+      result.overtimeEnd = result.earlyOvertimeEnd;
+    } else if (lateOvertimeMinutes > 0) {
+      // Only late overtime
+      result.overtimeStart = result.lateOvertimeStart;
+      result.overtimeEnd = result.lateOvertimeEnd;
+    }
+  }
+
+  return result;
+};
+
 module.exports = {
   processAttendanceLogs,
   processHourlyAttendanceLogs,
-  generateRemarks
+  generateRemarks,
+  calculateOvertimeDetails
 };

@@ -4,6 +4,7 @@ const DailyAttendance = require("../models/dailyAttendance");
 const cron = require("node-cron");
 const moment = require("moment");
 const Employee = require("../models/employee");
+const { calculateOvertimeDetails } = require("../utils/attendanceProcessor");
 
 // Schedule to run the processor every day at midnight
 // cron.schedule("0 0 * * *", async () => {
@@ -670,34 +671,28 @@ const updateRecord = async (req, res) => {
             : 0;
       }
 
-      // Check if overtime (if expected check-out time exists)
-      if (record.expectedCheckoutTime) {
-        updateData.isOverTime =
-          updateData.lastExit > record.expectedCheckoutTime;
+      // Use the new calculateOvertimeDetails function for overtime calculation
+      if (record.expectedCheckinTime && record.expectedCheckoutTime) {
+        const overtimeDetails = calculateOvertimeDetails(
+          updateData.firstEntry,
+          updateData.lastExit,
+          record.expectedCheckinTime,
+          record.expectedCheckoutTime
+        );
 
-        // Handle overtime fields if overtime is detected
+        updateData.isOverTime = overtimeDetails.isOverTime;
+        
         if (updateData.isOverTime) {
-          // The overtime starts at the end of the scheduled shift
-          updateData.overtTimeStart = record.expectedCheckoutTime;
-          // The overtime ends at the last exit time
-          updateData.overtTimeEnd = updateData.lastExit;
-          // Calculate overtime minutes
-          updateData.overTimeMinutes = Math.round(
-            (updateData.lastExit - record.expectedCheckoutTime) / (1000 * 60)
-          );
-          // If not already set, set initial status to Pending
+          // Apply overtime details
+          updateData.overtTimeStart = overtimeDetails.overtimeStart;
+          updateData.overtTimeEnd = overtimeDetails.overtimeEnd;
+          updateData.overTimeMinutes = overtimeDetails.overtimeMinutes;
+          
+          // Keep existing status if available, otherwise set to Pending
           if (!record.overTimeStatus || record.overTimeStatus === "Reject") {
             updateData.overTimeStatus = "Pending";
           }
         } else {
-          // Clear overtime fields if there's no overtime
-          updateData.overtTimeStart = null;
-          updateData.overtTimeEnd = null;
-          updateData.overTimeMinutes = 0;
-          updateData.overTimeStatus = null;
-        }
-
-        if (!updateData.isOverTime) {
           // Clear overtime fields if there's no overtime
           updateData.overtTimeStart = null;
           updateData.overtTimeEnd = null;
@@ -724,15 +719,6 @@ const updateRecord = async (req, res) => {
     }
 
     if (updateData.lastExit && record.expectedCheckoutTime) {
-      // const expectedCheckoutTime = new Date(record.expectedCheckoutTime);
-      // const lastExit = new Date(updateData.lastExit);
-      // const newLastExit = new Date(lastExit); // Clone before modifying
-
-      // if (expectedCheckoutTime > lastExit) {
-      //   console.log("expectedCheckoutTime is greater than lastExit");
-      //   newLastExit.setDate(newLastExit.getDate() + 1);
-      // }
-
       console.log(
         { expectedCheckoutTime: record.expectedCheckoutTime },
         { lastExit: updateData.lastExit },
@@ -848,29 +834,57 @@ const updateOvertimeDetails = async (req, res) => {
       isManuallyUpdated: true, // Mark as manually updated
     };
 
-    // Update overtime start time if provided
-    if (overtimeStart) {
+    // If both start and end times are provided, use them directly (manual override)
+    if (overtimeStart && overtimeEnd) {
       updateData.overtTimeStart = new Date(overtimeStart);
-    }
-
-    // Update overtime end time if provided
-    if (overtimeEnd) {
       updateData.overtTimeEnd = new Date(overtimeEnd);
-    }
+      
+      // Calculate overtime minutes directly from provided values
+      updateData.overTimeMinutes = Math.round(
+        (new Date(overtimeEnd) - new Date(overtimeStart)) / (1000 * 60)
+      );
+    } 
+    // If only one is provided, recalculate using the new function and existing values
+    else if (overtimeStart || overtimeEnd) {
+      // For single time updates, we need to use our overtime calculation logic
+      // combined with existing values
 
-    // Calculate overtime minutes if both start and end times are available
-    if (updateData.overtTimeStart && updateData.overtTimeEnd) {
-      updateData.overTimeMinutes = Math.round(
-        (updateData.overtTimeEnd - updateData.overtTimeStart) / (1000 * 60)
-      );
-    } else if (updateData.overtTimeStart && record.overtTimeEnd) {
-      updateData.overTimeMinutes = Math.round(
-        (record.overtTimeEnd - updateData.overtTimeStart) / (1000 * 60)
-      );
-    } else if (record.overtTimeStart && updateData.overtTimeEnd) {
-      updateData.overTimeMinutes = Math.round(
-        (updateData.overtTimeEnd - record.overtTimeStart) / (1000 * 60)
-      );
+      // Prepare the input data for calculation
+      const firstEntry = record.firstEntry;
+      const lastExit = record.lastExit;
+      const shiftStartTime = record.expectedCheckinTime;
+      const shiftEndTime = record.expectedCheckoutTime;
+
+      // Only recalculate if we have all required data
+      if (firstEntry && lastExit && shiftStartTime && shiftEndTime) {
+        // Recalculate overtime based on current entry/exit times
+        const overtimeDetails = calculateOvertimeDetails(
+          firstEntry,
+          lastExit,
+          shiftStartTime, 
+          shiftEndTime
+        );
+
+        // Override with the user-provided value
+        if (overtimeStart) {
+          updateData.overtTimeStart = new Date(overtimeStart);
+          // Keep existing end time
+          updateData.overtTimeEnd = record.overtTimeEnd || overtimeDetails.overtimeEnd;
+        }
+        
+        if (overtimeEnd) {
+          updateData.overtTimeEnd = new Date(overtimeEnd);
+          // Keep existing start time
+          updateData.overtTimeStart = record.overtTimeStart || overtimeDetails.overtimeStart;
+        }
+
+        // Recalculate overtime minutes
+        if (updateData.overtTimeStart && updateData.overtTimeEnd) {
+          updateData.overTimeMinutes = Math.round(
+            (updateData.overtTimeEnd - updateData.overtTimeStart) / (1000 * 60)
+          );
+        }
+      }
     }
 
     // Update approval status if provided
@@ -1034,34 +1048,28 @@ const updateRelaxationRequest = async (req, res) => {
             : 0;
       }
 
-      // Check if overtime (if expected check-out time exists)
-      if (record.expectedCheckoutTime) {
-        updateData.isOverTime =
-          updateData.lastExit > record.expectedCheckoutTime;
+      // Use the new calculateOvertimeDetails function for overtime calculation
+      if (record.expectedCheckinTime && record.expectedCheckoutTime) {
+        const overtimeDetails = calculateOvertimeDetails(
+          updateData.firstEntry,
+          updateData.lastExit,
+          record.expectedCheckinTime,
+          record.expectedCheckoutTime
+        );
 
-        // Handle overtime fields if overtime is detected
+        updateData.isOverTime = overtimeDetails.isOverTime;
+        
         if (updateData.isOverTime) {
-          // The overtime starts at the end of the scheduled shift
-          updateData.overtTimeStart = record.expectedCheckoutTime;
-          // The overtime ends at the last exit time
-          updateData.overtTimeEnd = updateData.lastExit;
-          // Calculate overtime minutes
-          updateData.overTimeMinutes = Math.round(
-            (updateData.lastExit - record.expectedCheckoutTime) / (1000 * 60)
-          );
-          // If not already set, set initial status to Pending
+          // Apply overtime details
+          updateData.overtTimeStart = overtimeDetails.overtimeStart;
+          updateData.overtTimeEnd = overtimeDetails.overtimeEnd;
+          updateData.overTimeMinutes = overtimeDetails.overtimeMinutes;
+          
+          // Keep existing status if available, otherwise set to Pending
           if (!record.overTimeStatus || record.overTimeStatus === "Reject") {
             updateData.overTimeStatus = "Pending";
           }
         } else {
-          // Clear overtime fields if there's no overtime
-          updateData.overtTimeStart = null;
-          updateData.overtTimeEnd = null;
-          updateData.overTimeMinutes = 0;
-          updateData.overTimeStatus = null;
-        }
-
-        if (!updateData.isOverTime) {
           // Clear overtime fields if there's no overtime
           updateData.overtTimeStart = null;
           updateData.overtTimeEnd = null;
@@ -1088,15 +1096,6 @@ const updateRelaxationRequest = async (req, res) => {
     }
 
     if (updateData.lastExit && record.expectedCheckoutTime) {
-      // const expectedCheckoutTime = new Date(record.expectedCheckoutTime);
-      // const lastExit = new Date(updateData.lastExit);
-      // const newLastExit = new Date(lastExit); // Clone before modifying
-
-      // if (expectedCheckoutTime > lastExit) {
-      //   console.log("expectedCheckoutTime is greater than lastExit");
-      //   newLastExit.setDate(newLastExit.getDate() + 1);
-      // }
-
       console.log(
         { expectedCheckoutTime: record.expectedCheckoutTime },
         { lastExit: updateData.lastExit },
