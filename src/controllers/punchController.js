@@ -406,7 +406,7 @@ const updatePunchStatus = async (req, res) => {
               record.expectedCheckinTime,
               record.expectedCheckoutTime
             );
-            
+            console.log({ overtimeDetails }, "overtimeDetails");
             updateData.isOverTime = overtimeDetails.isOverTime;
             
             if (updateData.isOverTime) {
