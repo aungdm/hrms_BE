@@ -290,7 +290,7 @@ const updatePunchStatus = async (req, res) => {
       console.log({ updateData }, "updateData");
       if (updateData) {
         console.log("updateData found");
-        updateData.isManuallyUpdated = true;
+        // updateData.isManuallyUpdated = true;
         updateData[updatedPunch.punchType] = currentPunch.time;
 
         console.log({ updateData });
@@ -310,7 +310,7 @@ const updatePunchStatus = async (req, res) => {
         }
 
         // Mark record as manually updated - always set for any manual edit
-        updateData.isManuallyUpdated = true;
+        // updateData.isManuallyUpdated = true;
 
         // Process firstEntry and lastExit timestamps
         if (
@@ -318,10 +318,12 @@ const updatePunchStatus = async (req, res) => {
           typeof updateData.firstEntry === "string"
         ) {
           updateData.firstEntry = new Date(updateData.firstEntry);
+          console.log( updateData.firstEntry, "updateData.firstEntry");
         }
 
         if (updateData.lastExit && typeof updateData.lastExit === "string") {
           updateData.lastExit = new Date(updateData.lastExit);
+          console.log( updateData.lastExit, "updateData.lastExit");
         }
 
         // If status is changed to Absent or Day Off, clear entry/exit times and related fields
@@ -355,10 +357,12 @@ const updatePunchStatus = async (req, res) => {
 
           let first = new Date(updateData.firstEntry);
           let last = new Date(updateData.lastExit);
+          console.log({ first }, { last }, "first and last");
 
           // Add 1 day to lastExitTime if it is earlier than firstEntryTime
           if (first > last) {
             last.setDate(last.getDate() + 1);
+            console.log({ last }, "last");
           }
 
           const workDurationMinutes = Math.round((last - first) / (1000 * 60));
@@ -366,6 +370,7 @@ const updatePunchStatus = async (req, res) => {
           console.log({ workDurationMinutes }, "workDurationMinutes");
 
           updateData.workDuration = Math.round((last - first) / (1000 * 60));
+          console.log({ updateData }, "updateData.workDuration");
 
           // Check if late arrival (if expected check-in time exists)
           if (record.expectedCheckinTime) {
@@ -376,6 +381,7 @@ const updatePunchStatus = async (req, res) => {
                       (1000 * 60)
                   )
                 : 0;
+            console.log({ updateData }, "updateData.lateArrival");
           }
 
           // Check if early departure (if expected check-out time exists)
@@ -387,11 +393,13 @@ const updatePunchStatus = async (req, res) => {
                       (1000 * 60)
                   )
                 : 0;
+            console.log({ updateData }, "updateData.earlyDeparture");
           }
 
           // Check if overtime (if expected check-out time exists)
           if (record.expectedCheckoutTime) {
             // Use the new calculateOvertimeDetails function for overtime calculation
+            console.log( updateData.firstEntry, updateData.lastExit, record.expectedCheckinTime, record.expectedCheckoutTime, "updateData.firstEntry and updateData.lastExit");
             const overtimeDetails = calculateOvertimeDetails(
               updateData.firstEntry,
               updateData.lastExit,

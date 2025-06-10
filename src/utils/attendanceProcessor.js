@@ -152,6 +152,7 @@ const processAttendanceLogs = async (
           // Use the specific start and end times from the day's schedule
           const shiftStartTime = moment(daySchedule.start);
           const shiftEndTime = moment(daySchedule.end);
+          console.log({shiftStartTime}, {shiftEndTime}, "shiftStartTime and shiftEndTime");
 
           // Calculate the extended window for early check-in
           const earlyWindow = shiftStartTime
@@ -367,6 +368,7 @@ const processDailyAttendance = async (
         lastExit < shiftEndDate
           ? Math.round((shiftEndDate - lastExit) / (1000 * 60))
           : 0;
+      console.log({ earlyDeparture}, "earlyDeparture" , {lastExit}, {shiftEndDate});
       // Determine check-out status
       checkoutStatus = "On Time";
       if (earlyDeparture > 0) {
@@ -436,6 +438,7 @@ const processDailyAttendance = async (
       }
     }
 
+    console.log({ firstEntry}, {lastExit}, {lateArrival}, {earlyDeparture}  , "relaxation request");
     // Determine if relaxation request is needed
     if (firstEntry && lastExit && (lateArrival > 1 || earlyDeparture > 0)) {
       relaxationRequest = true;
@@ -962,6 +965,7 @@ const updateLastProcessedTime = async (timestamp) => {
  * @returns {Object} - Object containing overtime details: isOverTime, overtimeMinutes, overtimeStart, overtimeEnd, etc.
  */
 const calculateOvertimeDetails = (firstEntry, lastExit, shiftStartTime, shiftEndTime) => {
+  console.log({ firstEntry, lastExit, shiftStartTime, shiftEndTime}, "firstEntry, lastExit, shiftStartTime, shiftEndTime");
   // Initialize result object
   const result = {
     isOverTime: false,
@@ -1006,9 +1010,11 @@ const calculateOvertimeDetails = (firstEntry, lastExit, shiftStartTime, shiftEnd
     result.lateOvertimeStart = new Date(shiftEndTime.getTime() + (CONFIG.OVERTIME_THRESHOLD_MINUTES * 60 * 1000));
     result.lateOvertimeEnd = lastExit;
   }
+  console.log({ earlyOvertimeMinutes, lateOvertimeMinutes}, "earlyOvertimeMinutes and lateOvertimeMinutes");
 
   // Total overtime minutes is the sum of early and late overtime
   const totalOvertimeMinutes = earlyOvertimeMinutes + lateOvertimeMinutes;
+  console.log({ totalOvertimeMinutes}, "totalOvertimeMinutes");
 
   // Only set isOverTime true if there's actual overtime
   if (totalOvertimeMinutes > 0) {

@@ -813,7 +813,7 @@ const updateRecord = async (req, res) => {
 const updateOvertimeDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const { overtimeStart, overtimeEnd, approvalStatus } = req.body;
+    const { firstEntry, lastExit, approvalStatus } = req.body;
 
     // Find the record
     const record = await DailyAttendance.findById(id);
@@ -834,57 +834,28 @@ const updateOvertimeDetails = async (req, res) => {
       isManuallyUpdated: true, // Mark as manually updated
     };
 
-    // If both start and end times are provided, use them directly (manual override)
-    if (overtimeStart && overtimeEnd) {
-      updateData.overtTimeStart = new Date(overtimeStart);
-      updateData.overtTimeEnd = new Date(overtimeEnd);
-      
-      // Calculate overtime minutes directly from provided values
-      updateData.overTimeMinutes = Math.round(
-        (new Date(overtimeEnd) - new Date(overtimeStart)) / (1000 * 60)
+    // Use firstEntry and lastExit from request if provided, otherwise fallback to record
+    const entry = firstEntry ? new Date(firstEntry) : record.firstEntry;
+    const exit = lastExit ? new Date(lastExit) : record.lastExit;
+    const shiftStartTime = record.expectedCheckinTime;
+    const shiftEndTime = record.expectedCheckoutTime;
+
+    // Only recalculate if we have all required data
+    if (entry && exit && shiftStartTime && shiftEndTime) {
+      const overtimeDetails = calculateOvertimeDetails(
+        entry,
+        exit,
+        shiftStartTime,
+        shiftEndTime
       );
-    } 
-    // If only one is provided, recalculate using the new function and existing values
-    else if (overtimeStart || overtimeEnd) {
-      // For single time updates, we need to use our overtime calculation logic
-      // combined with existing values
-
-      // Prepare the input data for calculation
-      const firstEntry = record.firstEntry;
-      const lastExit = record.lastExit;
-      const shiftStartTime = record.expectedCheckinTime;
-      const shiftEndTime = record.expectedCheckoutTime;
-
-      // Only recalculate if we have all required data
-      if (firstEntry && lastExit && shiftStartTime && shiftEndTime) {
-        // Recalculate overtime based on current entry/exit times
-        const overtimeDetails = calculateOvertimeDetails(
-          firstEntry,
-          lastExit,
-          shiftStartTime, 
-          shiftEndTime
-        );
-
-        // Override with the user-provided value
-        if (overtimeStart) {
-          updateData.overtTimeStart = new Date(overtimeStart);
-          // Keep existing end time
-          updateData.overtTimeEnd = record.overtTimeEnd || overtimeDetails.overtimeEnd;
-        }
-        
-        if (overtimeEnd) {
-          updateData.overtTimeEnd = new Date(overtimeEnd);
-          // Keep existing start time
-          updateData.overtTimeStart = record.overtTimeStart || overtimeDetails.overtimeStart;
-        }
-
-        // Recalculate overtime minutes
-        if (updateData.overtTimeStart && updateData.overtTimeEnd) {
-          updateData.overTimeMinutes = Math.round(
-            (updateData.overtTimeEnd - updateData.overtTimeStart) / (1000 * 60)
-          );
-        }
-      }
+      updateData.firstEntry = entry;
+      updateData.lastExit = exit;
+      updateData.overtTimeStart = overtimeDetails.overtimeStart;
+      updateData.overtTimeEnd = overtimeDetails.overtimeEnd;
+      updateData.overTimeMinutes = overtimeDetails.overtimeMinutes;
+      updateData.earlyOvertimeMinutes = overtimeDetails.earlyOvertimeMinutes;
+      updateData.lateOvertimeMinutes = overtimeDetails.lateOvertimeMinutes;
+      updateData.isOverTime = overtimeDetails.isOverTime;
     }
 
     // Update approval status if provided
@@ -892,7 +863,7 @@ const updateOvertimeDetails = async (req, res) => {
       if (approvalStatus === "Approved") {
         updateData.overTimeStatus = "Approved";
         updateData.approvedOverTime = true;
-      } else if (approvalStatus === "Reject") {
+      } else if (approvalStatus === "Reject" || approvalStatus === "Rejected") {
         updateData.overTimeStatus = "Reject";
         updateData.approvedOverTime = false;
       } else if (approvalStatus === "Pending") {
@@ -904,13 +875,12 @@ const updateOvertimeDetails = async (req, res) => {
     // Update remarks to reflect the changes
     let remarks = record.remarks || "";
     remarks += ". Overtime details manually updated";
-
     if (approvalStatus) {
       remarks += `. Overtime status changed to ${approvalStatus}`;
     }
-
     updateData.remarks = remarks;
 
+    console.log({ updateData });
     // Update the record
     const updatedRecord = await DailyAttendance.findByIdAndUpdate(
       id,
