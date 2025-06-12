@@ -904,7 +904,7 @@ const updateRelaxationRequest = async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
-    console.log({ updateData });
+    console.log("Relaxation Request Update Received:", { id, updateData });
 
     // Find the record
     const record = await DailyAttendance.findById(id);
@@ -912,15 +912,26 @@ const updateRelaxationRequest = async (req, res) => {
       return errorRresponse(res, 404, "Attendance record not found");
     }
 
+    console.log("Original Attendance Record:", {
+      id: record._id,
+      date: record.date,
+      employeeId: record.employeeId,
+      firstEntry: record.firstEntry,
+      lastExit: record.lastExit,
+      expectedCheckinTime: record.expectedCheckinTime,
+      expectedCheckoutTime: record.expectedCheckoutTime,
+      relaxationRequest: record.relaxationRequest,
+      relaxationRequestStatus: record.relaxationRequestStatus,
+      lateArrival: record.lateArrival,
+      earlyDeparture: record.earlyDeparture
+    });
+
     // Validate date format if provided
     if (updateData.date) {
       if (!moment(updateData.date, moment.ISO_8601, true).isValid()) {
         return errorRresponse(res, 400, "Invalid date format");
       }
     }
-
-    // Mark record as manually updated - always set for any manual edit
-    updateData.isManuallyUpdated = true;
 
     // Process firstEntry and lastExit timestamps
     if (updateData.firstEntry && typeof updateData.firstEntry === "string") {
@@ -932,14 +943,56 @@ const updateRelaxationRequest = async (req, res) => {
     }
 
     // --- Relaxation Request Handling ---
-    // If relaxationRequestStatus is being updated to Approved or Reject,
-    // ensure the relaxationRequest flag remains true if it was already true.
-    // This indicates a request was processed for this record.
+    // FLOW:
+    // 1. User submits a relaxation request (relaxationRequest=true, relaxationRequestStatus="Pending")
+    // 2. Admin approves/rejects the request by setting relaxationRequestStatus="Approved" or "Reject"
+    // 3. If approved:
+    //    a. Reset firstEntry to match expectedCheckinTime (if late arrival)
+    //    b. Reset lastExit to match expectedCheckoutTime (if early departure)
+    //    c. Reset lateArrival and earlyDeparture to 0
+    //    d. Set checkinStatus and checkoutStatus to "On Time"
+    //    e. Recalculate work duration and other metrics
+    // 4. If rejected: Keep original values but mark as rejected
+    
     if (updateData.relaxationRequestStatus && (updateData.relaxationRequestStatus === 'Approved' || updateData.relaxationRequestStatus === 'Reject')) {
         if (record.relaxationRequest) {
             updateData.relaxationRequest = true; // Keep the flag true if a request was made
         }
-        // The relaxationRequestStatus from updateData will be used by $set below
+        
+        // Special handling for APPROVED relaxation requests
+        if (updateData.relaxationRequestStatus === 'Approved') {
+            console.log("🟢 RELAXATION REQUEST APPROVED - Resetting attendance times to expected values");
+            
+            // When a relaxation request is approved, we reset the attendance record to match the expected times
+            // This essentially gives the employee the benefit of being counted as on-time
+            if (record.expectedCheckinTime) {
+                // Reset firstEntry to match expected check-in time
+                updateData.firstEntry = new Date(record.expectedCheckinTime);
+                console.log("✓ Reset firstEntry to expectedCheckinTime:", updateData.firstEntry);
+            }
+            
+            if (record.expectedCheckoutTime) {
+                // Reset lastExit to match expected check-out time
+                updateData.lastExit = new Date(record.expectedCheckoutTime);
+                console.log("✓ Reset lastExit to expectedCheckoutTime:", updateData.lastExit);
+            }
+            
+            // Reset late arrival and early departure metrics
+            updateData.lateArrival = 0;
+            updateData.earlyDeparture = 0;
+            console.log("✓ Reset lateArrival and earlyDeparture to 0");
+            
+            // Update check-in and check-out status to "On Time"
+            updateData.checkinStatus = "On Time";
+            updateData.checkoutStatus = "On Time";
+            console.log("✓ Set checkinStatus and checkoutStatus to 'On Time'");
+            
+            // Add a note to remarks about the relaxation approval
+            const baseRemarks = "Relaxation request approved. Employee marked as on-time.";
+            updateData.remarks = updateData.remarks ? `${updateData.remarks} ${baseRemarks}` : baseRemarks;
+        } else if (updateData.relaxationRequestStatus === 'Reject') {
+            console.log("🔴 RELAXATION REQUEST REJECTED - Keeping original attendance values");
+        }
     }
     // If relaxationRequestStatus is being set to Pending (e.g., manual edit)
     else if (updateData.relaxationRequestStatus === 'Pending') {
@@ -997,7 +1050,8 @@ const updateRelaxationRequest = async (req, res) => {
       updateData.workDuration = Math.round((last - first) / (1000 * 60));
 
       // Check if late arrival (if expected check-in time exists)
-      if (record.expectedCheckinTime) {
+      // Skip this calculation if relaxation request was approved
+      if (record.expectedCheckinTime && updateData.relaxationRequestStatus !== 'Approved') {
         updateData.lateArrival =
           updateData.firstEntry > record.expectedCheckinTime
             ? Math.round(
@@ -1008,7 +1062,8 @@ const updateRelaxationRequest = async (req, res) => {
       }
 
       // Check if early departure (if expected check-out time exists)
-      if (record.expectedCheckoutTime) {
+      // Skip this calculation if relaxation request was approved
+      if (record.expectedCheckoutTime && updateData.relaxationRequestStatus !== 'Approved') {
         updateData.earlyDeparture =
           updateData.lastExit < record.expectedCheckoutTime
             ? Math.round(
@@ -1050,7 +1105,8 @@ const updateRelaxationRequest = async (req, res) => {
     }
 
     // Update checkin/checkout status based on times
-    if (updateData.firstEntry && record.expectedCheckinTime) {
+    // Skip this calculation if relaxation request was approved (already set to "On Time")
+    if (updateData.firstEntry && record.expectedCheckinTime && updateData.relaxationRequestStatus !== 'Approved') {
       const minutesDiff = Math.round(
         (updateData.firstEntry - record.expectedCheckinTime) / (1000 * 60)
       );
@@ -1065,7 +1121,7 @@ const updateRelaxationRequest = async (req, res) => {
       }
     }
 
-    if (updateData.lastExit && record.expectedCheckoutTime) {
+    if (updateData.lastExit && record.expectedCheckoutTime && updateData.relaxationRequestStatus !== 'Approved') {
       console.log(
         { expectedCheckoutTime: record.expectedCheckoutTime },
         { lastExit: updateData.lastExit },
@@ -1128,6 +1184,13 @@ const updateRelaxationRequest = async (req, res) => {
 
       // Add a note about manual update
       updateData.remarks += ". This record was manually updated.";
+      
+      // Add note about relaxation request if it was approved
+      if (updateData.relaxationRequestStatus === 'Approved') {
+        updateData.remarks += " Relaxation request was approved, employee marked as on-time.";
+      } else if (updateData.relaxationRequestStatus === 'Reject') {
+        updateData.remarks += " Relaxation request was rejected.";
+      }
 
       // Add specific note for Day Off
       if (updateData.status === "Day Off") {
@@ -1136,13 +1199,28 @@ const updateRelaxationRequest = async (req, res) => {
       }
     }
 
-    console.log({ updateData });
+    console.log("Final updateData before saving:", updateData);
+    
     // Update the record with all the calculated values
     const updatedRecord = await DailyAttendance.findByIdAndUpdate(
       id,
       { $set: updateData },
       { new: true }
     ).populate("employeeId", "name user_defined_code department designation");
+
+    console.log("Updated Attendance Record after relaxation request handling:", {
+      id: updatedRecord._id,
+      date: updatedRecord.date,
+      employeeId: updatedRecord.employeeId?.name || updatedRecord.employeeId,
+      firstEntry: updatedRecord.firstEntry,
+      lastExit: updatedRecord.lastExit,
+      relaxationRequestStatus: updatedRecord.relaxationRequestStatus,
+      lateArrival: updatedRecord.lateArrival,
+      earlyDeparture: updatedRecord.earlyDeparture,
+      checkinStatus: updatedRecord.checkinStatus,
+      checkoutStatus: updatedRecord.checkoutStatus,
+      workDuration: updatedRecord.workDuration
+    });
 
     return successResponse(
       res,

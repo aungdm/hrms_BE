@@ -419,7 +419,7 @@ const processDailyAttendance = async (
       // For single log entries, mark as "Check In Only"
       status = "Check In Only";
     } else if (workHours < workSchedule.minWorkHoursForHalfDay) {
-      status = "Absent"; // Less than minimum hours for half day
+      status = "Less than Half Day"; // Less than minimum hours for half day
     } else if (workHours < workSchedule.minWorkHours) {
       status = "Half Day";
     } else if (lateArrival > 0) {
@@ -647,8 +647,8 @@ const createOrUpdateDailyAttendance = async (
 const generateRemarks = (status, lateArrival, earlyDeparture, checkinStatus, checkoutStatus, workDuration, expectedWorkHours, isOverTime) => {
   let remarks = [];
 
-  if (status === "Absent") {
-    remarks.push("Employee was absent");
+  if (status === "Less than Half Day") {
+    remarks.push("Worked less than half day hours");
   } else if (status === "Half Day") {
     remarks.push("Worked less than full day hours");
   } else if (status === "Weekend") {
