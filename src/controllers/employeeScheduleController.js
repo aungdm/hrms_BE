@@ -456,6 +456,7 @@ const generateAllEmployeeSchedules = async (req, res) => {
 
         // Find the time slot
         const timeSlot = await WorkSchedule.findById(employee.timeSlot);
+        console.log({ timeSlot }, "timeSlot");
         if (!timeSlot) {
           results.failed.push({
             employee_id: employee._id,
@@ -525,6 +526,7 @@ const generateAllEmployeeSchedules = async (req, res) => {
           schedules,
         });
 
+        console.log({ employeeSchedule }, "employeeSchedule");
         await employeeSchedule.save();
 
         results.success.push({
