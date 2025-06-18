@@ -376,7 +376,7 @@ const processDailyAttendance = async (
       } else if (lastExit > shiftEndDate) {
         // If checked out more than 30 minutes after shift end
         const lateMinutes = Math.round((lastExit - shiftEndDate) / (1000 * 60));
-        if (lateMinutes > 30) {
+        if (lateMinutes > 10) {
           checkoutStatus = "Late";
         }
       }
@@ -433,7 +433,7 @@ const processDailyAttendance = async (
     } else if (firstEntry < shiftStartDate) {
       // If checked in more than 30 minutes early
       const earlyMinutes = Math.round((shiftStartDate - firstEntry) / (1000 * 60));
-      if (earlyMinutes > 30) {
+      if (earlyMinutes > 10) {
         checkinStatus = "Early";
       }
     }

@@ -27,6 +27,11 @@ const PayrollHourlySchema = new mongoose.Schema(
       type: Number,
       required: [true, 'Gross salary is required'],
     },
+    actualGrossSalary: {
+      type: Number,
+      default: 0,
+      comment: 'Gross salary calculated based on actual hours worked'
+    },
     perHourRate: {
       type: Number,
       default: 0,
@@ -84,6 +89,7 @@ PayrollHourlySchema.methods.generatePayslip = function() {
     },
     salaryDetails: {
       grossSalary: this.grossSalary,
+      actualGrossSalary: this.actualGrossSalary,
       perHourRate: this.perHourRate,
       payableHours: this.payableHours,
       lateFines: this.lateFines,

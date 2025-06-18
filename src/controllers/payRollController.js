@@ -60,6 +60,7 @@ exports.generateHourlyPayroll = async (req, res) => {
       // Calculate salary based on hourly rules
       const {
         grossSalary,
+        actualGrossSalary,
         perHourRate,
         payableHours,
         lateFines,
@@ -77,6 +78,7 @@ exports.generateHourlyPayroll = async (req, res) => {
         startDate,
         endDate,
         grossSalary,
+        actualGrossSalary,
         perHourRate,
         payableHours,
         lateFines,
@@ -278,6 +280,7 @@ exports.getHourlyPayslip = async (req, res) => {
       },
       salaryDetails: {
         grossSalary: payroll.grossSalary,
+        actualGrossSalary: payroll.actualGrossSalary,
         perHourRate: payroll.perHourRate,
         payableHours: payroll.payableHours,
         lateFines: payroll.lateFines,
@@ -602,11 +605,8 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
   const perHourSalary = grossSalary / (workingDays * shiftHours);
   const perMinuteSalary = perHourSalary / 60;
   
-  // Calculate payable hours based on attendance records
-  // Default to standard working hours if no records
-  const payableHours = attendanceRecords.length > 0 
-    ? attendanceRecords.length * shiftHours 
-    : workingDays * shiftHours;
+  // Calculate payable hours based on ACTUAL working days only
+  let payableHours = 0;
   
   // Track late arrivals to implement the "first three late days without fine" rule
   let lateArrivalDays = 0;
@@ -616,22 +616,48 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
   
   // Process attendance records for late arrival fines and overtime
   attendanceRecords.forEach(record => {
+    // Determine actual working hours based on status
+    let actualHours = 0;
+    let dailyPay = 0;
+    let status = record.status || 'Present';
+    
+    // Only count hours for work days (Present, Check Only, Late arrival with actual work)
+    if (status === 'Present' || status === 'Check Only') {
+      actualHours = shiftHours;
+      dailyPay = perHourSalary * shiftHours;
+      payableHours += shiftHours;
+    } else if (status === 'Absent') {
+      actualHours = 0;
+      dailyPay = 0;
+      // Don't add to payableHours for absent days
+    } else if (status === 'Weekend') {
+      // Weekends are typically non-working days unless overtime is approved
+      actualHours = 0;
+      dailyPay = 0;
+      // Don't add to payableHours for weekends
+    } else {
+      // For any other status, treat as present (fallback)
+      actualHours = shiftHours;
+      dailyPay = perHourSalary * shiftHours;
+      payableHours += shiftHours;
+    }
+    
     const dailyCalc = {
       date: record.date,
-      status: record.status || 'Present',
-      regularHours: shiftHours,
+      status: status,
+      regularHours: actualHours,
       overtimeMinutes: record.overTimeMinutes || 0,
       overtimeStatus: record.overTimeStatus || 'Not Applicable',
       lateArrival: record.lateArrival || 0,
-      dailyPay: perHourSalary * shiftHours,
+      dailyPay: dailyPay,
       overtimePay: 0,
       lateFine: 0,
-      totalDailyPay: perHourSalary * shiftHours,
+      totalDailyPay: dailyPay,
       notes: ''
     };
     
-    // Late arrival fines
-    if (record.lateArrival) {
+    // Late arrival fines (only for working days)
+    if (record.lateArrival && (status === 'Present' || status === 'Check Only')) {
       const lateMinutes = record.lateArrival; // This is in minutes
       lateArrivalDays++;
       
@@ -660,7 +686,7 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
       }
     }
     
-    // Overtime calculations
+    // Overtime calculations (can happen on any day, including weekends)
     if (record.overTimeMinutes && record.overTimeStatus === 'Approved') {
       const overtimeMinutes = record.overTimeMinutes; // This field exists in the model
       let dailyOvertimePay = 0;
@@ -678,6 +704,13 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
       overtimePay += dailyOvertimePay;
       dailyCalc.overtimePay = dailyOvertimePay;
       dailyCalc.totalDailyPay += dailyOvertimePay;
+    }
+    
+    // Add status-specific notes
+    if (status === 'Absent') {
+      dailyCalc.notes = 'Absent - no pay for this day';
+    } else if (status === 'Weekend') {
+      dailyCalc.notes = 'Weekend - non-working day';
     }
     
     dailyCalculations.push(dailyCalc);
@@ -704,11 +737,13 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     });
   });
   
-  // Calculate net salary
-  const netSalary = grossSalary - lateFines - otherDeductions + overtimePay;
+  // Calculate net salary based on actual hours worked
+  const actualGrossSalary = payableHours * perHourSalary;
+  const netSalary = actualGrossSalary - lateFines - otherDeductions + overtimePay;
   
   return {
-    grossSalary,
+    grossSalary: grossSalary, // Keep original for reference
+    actualGrossSalary: actualGrossSalary, // Salary based on actual hours worked
     perHourRate: perHourSalary,
     payableHours,
     lateFines,
