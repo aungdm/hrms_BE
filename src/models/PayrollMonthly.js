@@ -27,6 +27,10 @@ const PayrollMonthlySchema = new mongoose.Schema(
       type: Number,
       required: [true, 'Gross salary is required'],
     },
+    absentDays: {
+      type: Number,
+      default: 0,
+    },
     absentDeductions: {
       type: Number,
       default: 0,
@@ -38,6 +42,10 @@ const PayrollMonthlySchema = new mongoose.Schema(
     netSalary: {
       type: Number,
       required: [true, 'Net salary is required'],
+    },
+    dailyCalculations: {
+      type: Array,
+      default: [],
     },
     status: {
       type: String,
@@ -68,10 +76,12 @@ PayrollMonthlySchema.methods.generatePayslip = function() {
     },
     salaryDetails: {
       grossSalary: this.grossSalary,
+      absentDays: this.absentDays,
       absentDeductions: this.absentDeductions,
       otherDeductions: this.otherDeductions,
       netSalary: this.netSalary,
     },
+    dailyCalculations: this.dailyCalculations || [],
     generatedDate: this.createdAt,
   };
 };

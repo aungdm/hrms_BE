@@ -229,7 +229,7 @@ exports.deleteHourlyPayroll = async (req, res) => {
       });
     }
     
-    await payroll.remove();
+    await PayrollHourly.deleteOne({ _id: req.params.id });
     
     return res.status(200).json({
       success: true,
@@ -359,9 +359,11 @@ exports.generateMonthlyPayroll = async (req, res) => {
       // Calculate salary based on monthly rules
       const {
         grossSalary,
+        absentDays,
         absentDeductions,
         otherDeductions,
-        netSalary
+        netSalary,
+        dailyCalculations
       } = calculateMonthlySalary(employee, attendanceRecords, fineRecords);
       
       // Create payroll record
@@ -372,9 +374,11 @@ exports.generateMonthlyPayroll = async (req, res) => {
         startDate,
         endDate,
         grossSalary,
+        absentDays,
         absentDeductions,
         otherDeductions,
         netSalary,
+        dailyCalculations,
         status: 'Generated',
       });
       
@@ -517,7 +521,7 @@ exports.deleteMonthlyPayroll = async (req, res) => {
       });
     }
     
-    await payroll.remove();
+    await PayrollMonthly.deleteOne({ _id: req.params.id });
     
     return res.status(200).json({
       success: true,
@@ -599,152 +603,203 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
   let otherDeductions = 0;
   let overtimePay = 0;
   
-  // Calculate per hour and per minute salary
-  const workingDays = 26;
-  const shiftHours = 8; // Assuming 8-hour shift, adjust as needed
-  const perHourSalary = grossSalary / (workingDays * shiftHours);
-  const perMinuteSalary = perHourSalary / 60;
+  // Calculate per hour and per minute salary according to specifications
+  const workingDays = 26; // As specified in requirements
+  const shiftHours = 8; // As specified in requirements
+  const perHourRate = grossSalary / (workingDays * shiftHours);
+  const perMinuteRate = perHourRate / 60;
   
-  // Calculate payable hours based on ACTUAL working days only
+  // Initialize payable hours
   let payableHours = 0;
-  
-  // Track late arrivals to implement the "first three late days without fine" rule
-  let lateArrivalDays = 0;
   
   // Create a detailed breakdown of day-by-day calculations
   const dailyCalculations = [];
   
-  // Process attendance records for late arrival fines and overtime
+  // Check if employee is leadership role for different fine structure
+  const isLeadership = ['Team Lead', 'Supervisor', 'Project Manager'].includes(employee.designation);
+  
+  // Process attendance records for payroll calculations
   attendanceRecords.forEach(record => {
-    // Determine actual working hours based on status
-    let actualHours = 0;
-    let dailyPay = 0;
+    let dailyPayableMinutes = 0;
+    let dailyOvertimeMinutes = 0;
+    let dailyLateFine = 0;
+    let dailyOvertimePay = 0;
     let status = record.status || 'Present';
-    
-    // Only count hours for work days (Present, Check Only, Late arrival with actual work)
-    if (status === 'Present' || status === 'Check Only') {
-      actualHours = shiftHours;
-      dailyPay = perHourSalary * shiftHours;
-      payableHours += shiftHours;
-    } else if (status === 'Absent') {
-      actualHours = 0;
-      dailyPay = 0;
-      // Don't add to payableHours for absent days
-    } else if (status === 'Weekend') {
-      // Weekends are typically non-working days unless overtime is approved
-      actualHours = 0;
-      dailyPay = 0;
-      // Don't add to payableHours for weekends
-    } else {
-      // For any other status, treat as present (fallback)
-      actualHours = shiftHours;
-      dailyPay = perHourSalary * shiftHours;
-      payableHours += shiftHours;
-    }
     
     const dailyCalc = {
       date: record.date,
       status: status,
-      regularHours: actualHours,
-      overtimeMinutes: record.overTimeMinutes || 0,
-      overtimeStatus: record.overTimeStatus || 'Not Applicable',
+      checkinStatus: record.checkinStatus || 'On Time',
+      checkoutStatus: record.checkoutStatus || 'On Time',
+      isOverTime: record.isOverTime || false,
+      overTimeStatus: record.overTimeStatus || 'Not Applicable',
+      workDuration: record.workDuration || 0,
       lateArrival: record.lateArrival || 0,
-      dailyPay: dailyPay,
+      payableHours: 0, // Will be calculated below
+      overtimeMinutes: 0,
+      dailyPay: 0,
       overtimePay: 0,
       lateFine: 0,
-      totalDailyPay: dailyPay,
+      totalDailyPay: 0,
       notes: ''
     };
     
-    // Late arrival fines (only for working days)
-    if (record.lateArrival && (status === 'Present' || status === 'Check Only')) {
-      const lateMinutes = record.lateArrival; // This is in minutes
-      lateArrivalDays++;
-      
-      // Apply late fines according to rules, but skip the first three late days
-      if (lateArrivalDays > 3) {
-        let finesToAdd = 0;
-        if (lateMinutes > 120) {
-          // > 120 minutes
-          finesToAdd = employee.designation === 'Regular' ? 2000 : 4000;
-          dailyCalc.notes = 'Late fine applied (>120 minutes) - after 3 free late days';
-        } else if (lateMinutes > 20) {
-          // > 20 minutes
-          finesToAdd = employee.designation === 'Regular' ? 1000 : 2000;
-          dailyCalc.notes = 'Late fine applied (>20 minutes) - after 3 free late days';
-        } else if (lateMinutes > 1) {
-          // > 1 minute
-          finesToAdd = employee.designation === 'Regular' ? 500 : 1000;
-          dailyCalc.notes = 'Late fine applied (>1 minute) - after 3 free late days';
+    // Calculate payable minutes based on overtime status and approval
+    if (record.isOverTime) {
+      if (record.overTimeStatus === "Approved") {
+        // Use workDuration minutes and add to payable hours
+        dailyPayableMinutes = record.workDuration || 0;
+        dailyOvertimeMinutes = record.overTimeMinutes || 0;
+        
+        // Calculate overtime pay based on leadership role
+        if (isLeadership) {
+          if (dailyOvertimeMinutes <= 60) {
+            // Standard rate for <= 60 mins
+            dailyOvertimePay = dailyOvertimeMinutes * perMinuteRate;
+            dailyCalc.notes = `Work: ${dailyPayableMinutes}min | OT: ${dailyOvertimeMinutes}min @ 1x rate (Leadership ≤60min) | Status: Approved`;
+          } else {
+            // Double rate for > 60 mins
+            dailyOvertimePay = dailyOvertimeMinutes * perMinuteRate * 2;
+            dailyCalc.notes = `Work: ${dailyPayableMinutes}min | OT: ${dailyOvertimeMinutes}min @ 2x rate (Leadership >60min) | Status: Approved`;
+          }
+        } else {
+          // Standard per-minute rate for non-leadership
+          dailyOvertimePay = dailyOvertimeMinutes * perMinuteRate;
+          dailyCalc.notes = `Work: ${dailyPayableMinutes}min | OT: ${dailyOvertimeMinutes}min @ 1x rate (Regular employee) | Status: Approved`;
         }
         
-        lateFines += finesToAdd;
-        dailyCalc.lateFine = finesToAdd;
-        dailyCalc.totalDailyPay -= finesToAdd;
-      } else {
-        dailyCalc.notes = `Late arrival (${lateMinutes} minutes) - no fine (within first 3 late days)`;
+      } else if (record.overTimeStatus === "Pending" || record.overTimeStatus === "Rejected") {
+        // Complex logic based on checkin/checkout status
+        if (record.checkinStatus === "Early" && (record.checkoutStatus === "Early" || record.checkoutStatus === "On Time")) {
+          // expectedCheckinTime → lastExit
+          const expectedCheckinTime = new Date(record.expectedCheckinTime);
+          const lastExit = new Date(record.lastExit);
+          if (lastExit > expectedCheckinTime) {
+            dailyPayableMinutes = Math.floor((lastExit - expectedCheckinTime) / (1000 * 60));
+          }
+          dailyCalc.notes = `OT ${record.overTimeStatus} | Early checkin → Last exit | Payable: ${dailyPayableMinutes}min | Checkin: Early, Checkout: ${record.checkoutStatus}`;
+          
+        } else if (record.checkoutStatus === "Late" && (record.checkinStatus === "Late" || record.checkinStatus === "On Time")) {
+          // firstEntry → expectedCheckoutTime
+          const firstEntry = new Date(record.firstEntry);
+          const expectedCheckoutTime = new Date(record.expectedCheckoutTime);
+          if (expectedCheckoutTime > firstEntry) {
+            dailyPayableMinutes = Math.floor((expectedCheckoutTime - firstEntry) / (1000 * 60));
+          }
+          dailyCalc.notes = `OT ${record.overTimeStatus} | First entry → Expected checkout | Payable: ${dailyPayableMinutes}min | Checkin: ${record.checkinStatus}, Checkout: Late`;
+          
+        } else if (record.checkinStatus === "Early" && record.checkoutStatus === "Late") {
+          // expectedCheckinTime → expectedCheckoutTime
+          const expectedCheckinTime = new Date(record.expectedCheckinTime);
+          const expectedCheckoutTime = new Date(record.expectedCheckoutTime);
+          if (expectedCheckoutTime > expectedCheckinTime) {
+            dailyPayableMinutes = Math.floor((expectedCheckoutTime - expectedCheckinTime) / (1000 * 60));
+          }
+          dailyCalc.notes = `OT ${record.overTimeStatus} | Expected shift duration | Payable: ${dailyPayableMinutes}min | Checkin: Early, Checkout: Late`;
+        } else {
+          // Fallback to work duration
+          dailyPayableMinutes = record.workDuration || 0;
+          dailyCalc.notes = `OT ${record.overTimeStatus} | Using work duration as fallback | Payable: ${dailyPayableMinutes}min | Checkin: ${record.checkinStatus}, Checkout: ${record.checkoutStatus}`;
+        }
       }
+    } else {
+      // If isOverTime === false: Use workDuration minutes as payable time
+      dailyPayableMinutes = record.workDuration || 0;
+      dailyCalc.notes = `Regular shift | Work duration: ${dailyPayableMinutes}min | No overtime claimed`;
     }
     
-    // Overtime calculations (can happen on any day, including weekends)
-    if (record.overTimeMinutes && record.overTimeStatus === 'Approved') {
-      const overtimeMinutes = record.overTimeMinutes; // This field exists in the model
-      let dailyOvertimePay = 0;
+    // Convert minutes to hours for payable hours tracking
+    const dailyPayableHours = dailyPayableMinutes / 60;
+    payableHours += dailyPayableHours;
+    
+    // Calculate daily pay based on payable minutes
+    const dailyRegularPay = dailyPayableMinutes * perMinuteRate;
+    
+    // Late arrival fines (only for working days)
+    if (record.lateArrival && (status === 'Present' || status === 'Late')) {
+      const lateMinutes = record.lateArrival;
       
-      if (overtimeMinutes > 60 && ['Team Lead', 'Supervisor', 'Project Manager'].includes(employee.designation)) {
-        // Leadership overtime > 60 mins: 2x rate
-        dailyOvertimePay = overtimeMinutes * perMinuteSalary * 2;
-        dailyCalc.notes += ' Overtime at 2x rate (leadership role)';
+      if (isLeadership) {
+        // Leadership fine structure
+        if (lateMinutes > 120) {
+          dailyLateFine = 4000;
+          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹4000 (Leadership >120min)`;
+        } else if (lateMinutes > 20) {
+          dailyLateFine = 2000;
+          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹2000 (Leadership >20min)`;
+        } else if (lateMinutes > 1) {
+          dailyLateFine = 1000;
+          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹1000 (Leadership >1min)`;
+        }
       } else {
-        // Standard rate for all other cases
-        dailyOvertimePay = overtimeMinutes * perMinuteSalary;
-        dailyCalc.notes += ' Overtime at standard rate';
+        // Non-leadership fine structure
+        if (lateMinutes > 120) {
+          dailyLateFine = 2000;
+          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹2000 (Regular >120min)`;
+        } else if (lateMinutes > 20) {
+          dailyLateFine = 1000;
+          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹1000 (Regular >20min)`;
+        } else if (lateMinutes > 1) {
+          dailyLateFine = 500;
+          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹500 (Regular >1min)`;
+        }
       }
       
-      overtimePay += dailyOvertimePay;
-      dailyCalc.overtimePay = dailyOvertimePay;
-      dailyCalc.totalDailyPay += dailyOvertimePay;
+      lateFines += dailyLateFine;
+    } else if (record.lateArrival && record.lateArrival > 0) {
+      dailyCalc.notes += ` | Late: ${record.lateArrival}min (No fine - non-working status)`;
     }
     
-    // Add status-specific notes
-    if (status === 'Absent') {
-      dailyCalc.notes = 'Absent - no pay for this day';
-    } else if (status === 'Weekend') {
-      dailyCalc.notes = 'Weekend - non-working day';
+    // Update daily calculation object
+    dailyCalc.payableHours = (dailyPayableMinutes / 60).toFixed(2); // Convert to hours with 2 decimal places
+    dailyCalc.overtimeMinutes = dailyOvertimeMinutes;
+    dailyCalc.dailyPay = dailyRegularPay;
+    dailyCalc.overtimePay = dailyOvertimePay;
+    dailyCalc.lateFine = dailyLateFine;
+    dailyCalc.totalDailyPay = (dailyPayableMinutes * perMinuteRate) + dailyOvertimePay - dailyLateFine;
+    
+    // Add calculation summary to notes
+    if (dailyPayableMinutes > 0) {
+      dailyCalc.notes += ` | Pay: ₹${dailyCalc.dailyPay.toFixed(2)}`;
+      if (dailyOvertimePay > 0) {
+        dailyCalc.notes += ` + OT: ₹${dailyOvertimePay.toFixed(2)}`;
+      }
+      if (dailyLateFine > 0) {
+        dailyCalc.notes += ` - Fine: ₹${dailyLateFine}`;
+      }
+      dailyCalc.notes += ` = Total: ₹${dailyCalc.totalDailyPay.toFixed(2)}`;
+    } else {
+      dailyCalc.notes += ` | No payable time recorded`;
     }
+    
+    overtimePay += dailyOvertimePay;
     
     dailyCalculations.push(dailyCalc);
   });
   
-  // Add other fines/deductions
+  // Add other fines/deductions from monthly deductions
   fineRecords.forEach(fine => {
     otherDeductions += fine.amount || 0;
     
-    // Add the fine to the daily calculations
+    // Add the fine to daily calculations for transparency
     dailyCalculations.push({
       date: fine.date,
       status: 'Fine/Deduction',
-      regularHours: 0,
-      overtimeMinutes: 0,
-      overtimeStatus: 'Not Applicable',
-      lateArrival: 0,
-      dailyPay: 0,
-      overtimePay: 0,
-      lateFine: 0,
+      isDayDeducted: false,
+      dailyDeduction: 0,
       otherDeduction: fine.amount || 0,
-      totalDailyPay: -(fine.amount || 0),
-      notes: fine.reason || 'Other deduction'
+      notes: `Additional monthly deduction: ₹${fine.amount || 0} | Reason: ${fine.reason || 'Other deduction'}`
     });
   });
   
-  // Calculate net salary based on actual hours worked
-  const actualGrossSalary = payableHours * perHourSalary;
+  // Calculate salary components
+  const actualGrossSalary = payableHours * perHourRate;
   const netSalary = actualGrossSalary - lateFines - otherDeductions + overtimePay;
   
   return {
-    grossSalary: grossSalary, // Keep original for reference
+    grossSalary: grossSalary, // Monthly base salary for reference
     actualGrossSalary: actualGrossSalary, // Salary based on actual hours worked
-    perHourRate: perHourSalary,
+    perHourRate: perHourRate,
     payableHours,
     lateFines,
     otherDeductions,
@@ -761,28 +816,61 @@ function calculateMonthlySalary(employee, attendanceRecords, fineRecords) {
   let absentDeductions = 0;
   let otherDeductions = 0;
   
-  // Calculate per day deduction for absences
-  const perDayDeduction = grossSalary / 30;
+  // Calculate per day salary for absence deductions
+  const workingDaysInMonth = 26; // As per specifications
+  const perDayDeduction = grossSalary / workingDaysInMonth;
   
-  // Count absent days
-  const absentDays = attendanceRecords.filter(record => record.status === 'Absent').length;
+  // Count absent days and calculate deductions
+  let absentDays = 0;
+  const dailyCalculations = [];
   
-  // Calculate total absent deductions
-  absentDeductions = absentDays * perDayDeduction;
-  
-  // Add other fines/deductions
-  fineRecords.forEach(fine => {
-    otherDeductions += fine.amount || 0;
+  attendanceRecords.forEach(record => {
+    const status = record.status || 'Present';
+    let isDayDeducted = false;
+    let dailyDeduction = 0;
+    
+    // If a daily attendance record's status === "Absent", deduct 1 full day's pay
+    if (status === 'Absent') {
+      absentDays++;
+      dailyDeduction = perDayDeduction;
+      absentDeductions += perDayDeduction;
+      isDayDeducted = true;
+    }
+    
+    dailyCalculations.push({
+      date: record.date,
+      status: status,
+      isDayDeducted: isDayDeducted,
+      dailyDeduction: dailyDeduction,
+      notes: isDayDeducted ? 'Absent - full day deduction' : 'Present - full pay'
+    });
   });
   
-  // Calculate net salary
+  // Add other fines/deductions from monthly deductions
+  fineRecords.forEach(fine => {
+    otherDeductions += fine.amount || 0;
+    
+    // Add the fine to daily calculations for transparency
+    dailyCalculations.push({
+      date: fine.date,
+      status: 'Fine/Deduction',
+      isDayDeducted: false,
+      dailyDeduction: 0,
+      otherDeduction: fine.amount || 0,
+      notes: `Additional monthly deduction: ₹${fine.amount || 0} | Reason: ${fine.reason || 'Other deduction'}`
+    });
+  });
+  
+  // Final salary = monthly salary − absent day deductions − additional fines/deductions
   const netSalary = grossSalary - absentDeductions - otherDeductions;
   
   return {
     grossSalary,
+    absentDays,
     absentDeductions,
     otherDeductions,
-    netSalary
+    netSalary,
+    dailyCalculations
   };
 }
 
