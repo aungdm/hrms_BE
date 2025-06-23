@@ -42,6 +42,27 @@ const createPunch = async (req, res) => {
       return errorRresponse(res, 404, "Employee not found");
     }
 
+    // Check if attendance record exists
+    const attendanceRecord = await DailyAttendance.findById(attendanceId);
+    if (!attendanceRecord) {
+      return errorRresponse(res, 404, "Attendance record not found");
+    }
+
+    // Check if a punch request already exists for this attendance and punch type
+    const existingPunch = await Punch.findOne({
+      attendanceId,
+      punchType,
+      status: { $in: ["Pending", "Approved"] } // Don't allow duplicate unless previous was rejected
+    });
+
+    if (existingPunch) {
+      return errorRresponse(
+        res,
+        400,
+        `A punch request for ${punchType} already exists for this attendance record with status: ${existingPunch.status}`
+      );
+    }
+
     // Create new punch record
     const newPunch = new Punch({
       employeeId,
@@ -77,6 +98,7 @@ const getPunches = async (req, res) => {
       startDate,
       endDate,
       punchType,
+      attendanceId,
     } = req.query;
 
     const query = {};
@@ -84,6 +106,7 @@ const getPunches = async (req, res) => {
     if (status) query.status = status;
     if (employeeId) query.employeeId = employeeId;
     if (punchType) query.punchType = punchType;
+    if (attendanceId) query.attendanceId = attendanceId;
 
     if (startDate || endDate) {
       query.date = {};

@@ -813,7 +813,8 @@ const updateRecord = async (req, res) => {
 const updateOvertimeDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const { firstEntry, lastExit, approvalStatus } = req.body;
+    const { firstEntry, lastExit, approvalStatus, date } = req.body;
+    console.log({ firstEntry, lastExit, approvalStatus, date }, "updateOvertimeDetails", req.body);
 
     // Find the record
     const record = await DailyAttendance.findById(id);
@@ -834,9 +835,70 @@ const updateOvertimeDetails = async (req, res) => {
       isManuallyUpdated: true, // Mark as manually updated
     };
 
-    // Use firstEntry and lastExit from request if provided, otherwise fallback to record
-    const entry = firstEntry ? new Date(firstEntry) : record.firstEntry;
-    const exit = lastExit ? new Date(lastExit) : record.lastExit;
+    // Helper function to check if a string is in HH:MM format
+    const isTimeFormat = (timeString) => {
+      return typeof timeString === 'string' && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeString);
+    };
+    console.log({ isTimeFormat }, "isTimeFormat");
+
+
+    // Helper function to combine date and time
+    const combineDateTime = (dateValue, timeString) => {
+      if (!dateValue || !timeString) return null;
+      
+      const baseDate = new Date(dateValue);
+      const [hours, minutes] = timeString.split(':').map(Number);
+      
+      // Create new date with the specified time
+      const combinedDate = new Date(baseDate);
+      combinedDate.setHours(hours, minutes, 0, 0);
+      
+      return combinedDate;
+    };
+
+    // Process firstEntry and lastExit
+    let entry = null;
+    let exit = null;
+
+    if (firstEntry) {
+      console.log({ firstEntry }, "firstEntry");
+
+      if (isTimeFormat(firstEntry)) {
+        // Handle time-only format (HH:MM)
+        if (!date) {
+          return errorRresponse(res, 400, "Date is required when using time-only format");
+        }
+        entry = combineDateTime(date, firstEntry);
+      } else {
+        // Handle full datetime format (backward compatibility)
+        entry = new Date(firstEntry);
+      }
+    } else {
+      entry = record.firstEntry;
+    }
+
+    if (lastExit) {
+      console.log({ lastExit }, "lastExit");
+      if (isTimeFormat(lastExit)) {
+        // Handle time-only format (HH:MM)
+        if (!date) {
+          return errorRresponse(res, 400, "Date is required when using time-only format");
+        }
+        exit = combineDateTime(date, lastExit);
+      } else {
+        // Handle full datetime format (backward compatibility)
+        exit = new Date(lastExit);
+      }
+    } else {
+      exit = record.lastExit;
+    }
+
+    // Handle overnight scenario: if exit time is earlier than entry time, add 1 day to exit
+    if (entry && exit && exit < entry) {
+      console.log("Detected overnight work: lastExit is earlier than firstEntry, adding 1 day to lastExit");
+      exit.setDate(exit.getDate() + 1);
+    }
+
     const shiftStartTime = record.expectedCheckinTime;
     const shiftEndTime = record.expectedCheckoutTime;
 
