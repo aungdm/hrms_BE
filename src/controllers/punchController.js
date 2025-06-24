@@ -249,8 +249,8 @@ const deletePunch = async (req, res) => {
 const updatePunchStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
-     console.log({ status }, "status" , req.body);
+    const { status, firstEntry, lastExit, date } = req.body;
+    console.log({ status, firstEntry, lastExit, date }, "status", req.body);
 
     if (!status || !["Pending", "Approved", "Rejected"].includes(status)) {
       return errorRresponse(
@@ -259,6 +259,43 @@ const updatePunchStatus = async (req, res) => {
         "Valid status (Pending, Approved, Rejected) is required"
       );
     }
+
+    // Helper function to check if a string is in HH:MM format
+    const isTimeFormat = (timeString) => {
+      return typeof timeString === 'string' && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeString);
+    };
+
+    // Helper function to extract time from datetime or return time as-is
+    const extractTime = (timeValue) => {
+      if (!timeValue) return null;
+      
+      if (isTimeFormat(timeValue)) {
+        // Already in HH:MM format
+        return timeValue;
+      } else {
+        // Extract time from full datetime
+        const date = new Date(timeValue);
+        console.log({ date }, " extractTime date");
+        const hours = date.getHours().toString().padStart(2, '0');
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        console.log({ hours, minutes }, "hours and minutes");
+        return `${hours}:${minutes}`;
+      }
+    };
+
+    // Helper function to combine date and time
+    const combineDateTime = (dateValue, timeString) => {
+      if (!dateValue || !timeString) return null;
+      
+      const baseDate = new Date(dateValue);
+      const [hours, minutes] = timeString.split(':').map(Number);
+      
+      // Create new date with the specified time
+      const combinedDate = new Date(baseDate);
+      combinedDate.setHours(hours, minutes, 0, 0);
+      
+      return combinedDate;
+    };
 
     // Find the current punch record
     const currentPunch = await Punch.findById(id).populate(
@@ -303,20 +340,59 @@ const updatePunchStatus = async (req, res) => {
       dateForQuery.setHours(0, 0, 0, 0);
 
       console.log({ dateForQuery }, "dateForQuery");
-      //   const updateData = await DailyAttendance.findOne({
-      //     employeeId: updatedPunch.employeeId,
-      //   date: dateForQuery,
-      // });
       const updateData = await DailyAttendance.findById(
         currentPunch.attendanceId
       );
       console.log({ updateData }, "updateData");
+      
       if (updateData) {
         console.log("updateData found");
-        // updateData.isManuallyUpdated = true;
-        updateData[updatedPunch.punchType] = currentPunch.time;
+        
+        // Extract times from both firstEntry and lastExit if provided
+        const firstEntryTime = firstEntry ? extractTime(firstEntry) : null;
+        const lastExitTime = lastExit ? extractTime(lastExit) : null;
+        console.log({ firstEntryTime, lastExitTime }, "firstEntry and lastExit");
 
-        console.log({ updateData });
+        console.log({ firstEntryTime, lastExitTime }, "extracted times");
+        
+        // Use the provided date or fallback to the attendance record's date
+        const baseDate = date || updateData.date;
+        
+        // Process punch times - combine extracted times with the base date
+        let processedFirstEntry = null;
+        let processedLastExit = null;
+        
+        if (firstEntryTime) {
+          processedFirstEntry = combineDateTime(baseDate, firstEntryTime);
+          console.log({ processedFirstEntry }, "processedFirstEntry");
+        }
+        
+        if (lastExitTime) {
+          processedLastExit = combineDateTime(baseDate, lastExitTime);
+          console.log({ processedLastExit }, "processedLastExit");
+        }
+        
+        // Update the attendance record with processed times
+        if (processedFirstEntry) {
+          updateData.firstEntry = processedFirstEntry;
+        } else if (updatedPunch.punchType === 'firstEntry') {
+          // Use the original punch time if no new time provided
+          updateData.firstEntry = currentPunch.time;
+        }
+        
+        if (processedLastExit) {
+          updateData.lastExit = processedLastExit;
+        } else if (updatedPunch.punchType === 'lastExit') {
+          // Use the original punch time if no new time provided
+          updateData.lastExit = currentPunch.time;
+        }
+        
+        // If only the punch type time wasn't provided, use the original punch time
+        if (!processedFirstEntry && !processedLastExit) {
+          updateData[updatedPunch.punchType] = currentPunch.time;
+        }
+
+        console.log({ updateData }, "updateData after setting punch times");
 
         // Find the record
         const record = await DailyAttendance.findById(currentPunch.attendanceId);
@@ -325,15 +401,8 @@ const updatePunchStatus = async (req, res) => {
           return errorRresponse(res, 404, "Attendance record not found");
         }
 
-        // Validate date format if provided
-        if (updateData.date) {
-          if (!moment(updateData.date, moment.ISO_8601, true).isValid()) {
-            return errorRresponse(res, 400, "Invalid date format");
-          }
-        }
-
-        // Mark record as manually updated - always set for any manual edit
-        // updateData.isManuallyUpdated = true;
+        // Mark record as manually updated
+        updateData.isManuallyUpdated = true;
 
         // Process firstEntry and lastExit timestamps
         if (
@@ -341,12 +410,25 @@ const updatePunchStatus = async (req, res) => {
           typeof updateData.firstEntry === "string"
         ) {
           updateData.firstEntry = new Date(updateData.firstEntry);
-          console.log( updateData.firstEntry, "updateData.firstEntry");
+          console.log(updateData.firstEntry, "updateData.firstEntry");
         }
 
         if (updateData.lastExit && typeof updateData.lastExit === "string") {
           updateData.lastExit = new Date(updateData.lastExit);
-          console.log( updateData.lastExit, "updateData.lastExit");
+          console.log(updateData.lastExit, "updateData.lastExit");
+        }
+
+        // Handle overnight scenario: if exit time is earlier than entry time, add 1 day to exit
+        if (updateData.firstEntry && updateData.lastExit) {
+          let first = new Date(updateData.firstEntry);
+          let last = new Date(updateData.lastExit);
+          console.log({ first }, { last }, "first and last");
+          
+          if (first > last) {
+            console.log("Detected overnight work: lastExit is earlier than firstEntry, adding 1 day to lastExit");
+            last.setDate(last.getDate() + 1);
+            updateData.lastExit = last;
+          }
         }
 
         // If status is changed to Absent or Day Off, clear entry/exit times and related fields
@@ -382,17 +464,10 @@ const updatePunchStatus = async (req, res) => {
           let last = new Date(updateData.lastExit);
           console.log({ first }, { last }, "first and last");
 
-          // Add 1 day to lastExitTime if it is earlier than firstEntryTime
-          if (first > last) {
-            last.setDate(last.getDate() + 1);
-            console.log({ last }, "last");
-          }
-
           const workDurationMinutes = Math.round((last - first) / (1000 * 60));
-
           console.log({ workDurationMinutes }, "workDurationMinutes");
 
-          updateData.workDuration = Math.round((last - first) / (1000 * 60));
+          updateData.workDuration = workDurationMinutes;
           console.log({ updateData }, "updateData.workDuration");
 
           // Check if late arrival (if expected check-in time exists)
@@ -422,7 +497,7 @@ const updatePunchStatus = async (req, res) => {
           // Check if overtime (if expected check-out time exists)
           if (record.expectedCheckoutTime) {
             // Use the new calculateOvertimeDetails function for overtime calculation
-            console.log( updateData.firstEntry, updateData.lastExit, record.expectedCheckinTime, record.expectedCheckoutTime, "updateData.firstEntry and updateData.lastExit");
+            console.log(updateData.firstEntry, updateData.lastExit, record.expectedCheckinTime, record.expectedCheckoutTime, "updateData.firstEntry and updateData.lastExit");
             const overtimeDetails = calculateOvertimeDetails(
               updateData.firstEntry,
               updateData.lastExit,
@@ -469,19 +544,10 @@ const updatePunchStatus = async (req, res) => {
         }
 
         if (updateData.lastExit && record.expectedCheckoutTime) {
-          // const expectedCheckoutTime = new Date(record.expectedCheckoutTime);
-          // const lastExit = new Date(updateData.lastExit);
-          // const newLastExit = new Date(lastExit); // Clone before modifying
-
-          // if (expectedCheckoutTime > lastExit) {
-          //   console.log("expectedCheckoutTime is greater than lastExit");
-          //   newLastExit.setDate(newLastExit.getDate() + 1);
-          // }
-
           console.log(
             { expectedCheckoutTime: record.expectedCheckoutTime },
             { lastExit: updateData.lastExit },
-            "newLastExit"
+            "checkout comparison"
           );
           const minutesDiff = Math.round(
             (updateData.lastExit - record.expectedCheckoutTime) / (1000 * 60)
@@ -492,7 +558,7 @@ const updatePunchStatus = async (req, res) => {
           } else if (minutesDiff > 10) {
             // More than 10 mins late
             updateData.checkoutStatus = "Late";
-        } else {
+          } else {
             updateData.checkoutStatus = "On Time";
           }
         }
@@ -538,8 +604,8 @@ const updatePunchStatus = async (req, res) => {
             isOverTimeForRemarks
           );
 
-          // Add a note about manual update
-          updateData.remarks += ". This record was manually updated.";
+          // Add a note about punch request approval
+          updateData.remarks += ". Updated via approved punch request.";
 
           // Add specific note for Day Off
           if (updateData.status === "Day Off") {
@@ -548,12 +614,12 @@ const updatePunchStatus = async (req, res) => {
           }
         }
 
-        console.log({ updateData });
+        console.log({ updateData }, "final updateData");
         // Update the record with all the calculated values
         const updatedRecord = await DailyAttendance.findByIdAndUpdate(
           currentPunch.attendanceId,
           { $set: updateData },
-        { new: true }
+          { new: true }
         ).populate(
           "employeeId",
           "name user_defined_code department designation"
@@ -562,30 +628,21 @@ const updatePunchStatus = async (req, res) => {
         return successResponse(
           res,
           200,
-          "Attendance record updated successfully",
-          updatedRecord
+          "Punch request approved and attendance record updated successfully",
+          {
+            punchRequest: updatedPunch,
+            attendanceRecord: updatedRecord
+          }
         );
-        // console.log({ attendanceRecord }, "attendanceRecord");
-        // const mockReq = {
-        //   params: { id: attendanceRecord._id },
-        //   body: attendanceRecord,
-        // };
-
-        // const mockRes = {
-        //   status: (code) => ({
-        //     json: (data) => console.log("Response:", code, data),
-        //   }),
-        // };
-
-        // await updateRecord(mockReq, mockRes);
       }
       console.log("No attendance record found to update.");
     }
+    
     return successResponse(
       res,
       200,
       "Punch request status updated successfully",
-      currentPunch
+      updatedPunch
     );
   } catch (error) {
     console.error("Error updating punch request status:", error);
