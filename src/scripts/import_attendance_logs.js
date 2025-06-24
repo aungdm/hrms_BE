@@ -7,7 +7,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const AttendanceLog = require('../models/attendanceLogs');
 
 // Path to the JSON file
-const jsonFilePath = 'C:\\Users\\PC-Office\\Downloads\\converted_attendance_first_updated_device_id.json';
+const jsonFilePath = 'C:\\Users\\PC-Office\\Downloads\\attendence_json_utc.json';
 
 // Function to import logs from JSON file
 const importLogsFromJsonFile = async (filePath) => {

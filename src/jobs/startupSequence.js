@@ -44,7 +44,7 @@ const initializeStartupSequence = async () => {
       console.log('Starting attendance processor job scheduler after 1-minute delay');
       // Step 4: Start the attendance processor job scheduler
       scheduleAttendanceProcessingJob();
-    }, 60 * 3000); // 1 minute in milliseconds
+    }, 20 * 3000); // 1 minute in milliseconds
     
   } catch (error) {
     console.error('Error during startup sequence:', error);
