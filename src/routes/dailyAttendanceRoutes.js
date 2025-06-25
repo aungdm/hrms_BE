@@ -11,7 +11,8 @@ const {
   updateOvertimeDetails,
   updateRelaxationRequest,
   getRelaxationRequests,
-  getRelaxationRequestStats
+  getRelaxationRequestStats,
+  recalculateAttendance
 } = require("../controllers/dailyAttendanceController");
 
 // Routes for daily attendance
@@ -20,6 +21,7 @@ router.get("/get", getRecords);
 router.get("/statistics", getStatistics);
 router.get("/get/:id", getRecord);
 router.put("/update/:id", updateRecord);
+router.post("/recalculate/:id", recalculateAttendance);
 
 // Overtime routes
 router.get("/overtime", getOvertimeRecords);

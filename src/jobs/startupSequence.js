@@ -31,12 +31,12 @@ const initializeStartupSequence = async () => {
     
     // Step 1: Immediately sync attendance logs
     console.log('Starting immediate attendance logs sync...');
-    // await syncAttendanceLogs();
+    await syncAttendanceLogs();
     console.log('Initial attendance logs sync completed');
     
     // Step 2: Start the regular attendance logs sync job
     console.log('Starting regular attendance logs sync job scheduler...');
-    // scheduleAttendanceLogsSync();
+    scheduleAttendanceLogsSync();
     
     // Step 3: Wait for 1 minute before starting the attendance processor
     console.log('Waiting 1 minute before starting attendance processor job...');

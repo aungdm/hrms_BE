@@ -5,6 +5,9 @@ const cron = require("node-cron");
 const moment = require("moment");
 const Employee = require("../models/employee");
 const { calculateOvertimeDetails } = require("../utils/attendanceProcessor");
+const EmployeeSchedule = require("../models/employeeSchedule");
+const AttendanceLog = require("../models/attendanceLogs");
+const WorkSchedule = require("../models/workSchedule");
 
 // Schedule to run the processor every day at midnight
 // cron.schedule("0 0 * * *", async () => {
@@ -1447,6 +1450,341 @@ const getRelaxationRequestStats = async (req, res) => {
     }
 };
 
+// Recalculate a daily attendance record based on updated employee schedule
+const recalculateAttendance = async (req, res) => {
+  console.log("🔄 RECALCULATE ATTENDANCE - Starting process");
+  try {
+    const { id } = req.params;
+    console.log(`🔍 Processing attendance record ID: ${id}`);
+
+    // Find the attendance record
+    const record = await DailyAttendance.findById(id);
+    if (!record) {
+      console.log(`❌ Attendance record not found for ID: ${id}`);
+      return errorRresponse(res, 404, "Attendance record not found");
+    }
+    console.log(`✅ Found attendance record for employee: ${record.employeeId}`);
+
+    // Get the employee ID and date from the record
+    const employeeId = record.employeeId;
+    const date = new Date(record.date);
+    console.log(`📅 Processing date: ${date.toISOString().split('T')[0]}`);
+    
+    // Get the employee's logs for that day
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+    console.log(`⏰ Time range: ${dayStart.toISOString()} to ${dayEnd.toISOString()}`);
+
+    // Get the employee's schedule for this date
+    const monthNum = date.getMonth() + 1; // JavaScript months are 0-indexed
+    const yearNum = date.getFullYear();
+    console.log(`📆 Looking for employee schedule for month: ${monthNum}, year: ${yearNum}`);
+    
+    const employeeSchedule = await EmployeeSchedule.findOne({
+      employee_id: employeeId,
+      month: monthNum,
+      year: yearNum
+    });
+
+    if (!employeeSchedule) {
+      console.log(`❌ No employee schedule found for employee ${employeeId} in ${monthNum}/${yearNum}`);
+      return errorRresponse(res, 404, "Employee schedule not found for this date");
+    }
+    console.log(`✅ Found employee schedule for ${monthNum}/${yearNum}`);
+
+    // Find the specific day's schedule
+    const currentDateStr = moment(date).format('YYYY-MM-DD');
+    console.log(`🔍 Looking for day schedule for date: ${currentDateStr}`);
+    const daySchedule = employeeSchedule.schedules.find(
+      s => moment(s.date).format('YYYY-MM-DD') === currentDateStr
+    );
+
+    if (!daySchedule) {
+      console.log(`❌ No day schedule found for date: ${currentDateStr}`);
+      return errorRresponse(res, 404, "Day schedule not found for this date");
+    }
+    console.log(`✅ Found day schedule for ${currentDateStr}`);
+    console.log(`📋 Day schedule details:`, JSON.stringify(daySchedule, null, 2));
+
+    // Determine if it's a work day based on isDayOff flag
+    const isWorkDay = !daySchedule.isDayOff;
+    console.log(`📊 Is work day: ${isWorkDay}`);
+
+    // If it's not a work day, update the record as a day off
+    if (!isWorkDay) {
+      console.log(`🏝️ Day marked as non-working day, updating record as Day Off`);
+      const updatedRecord = await DailyAttendance.findByIdAndUpdate(
+        id,
+        {
+          status: "Weekend",
+          firstEntry: null,
+          lastExit: null,
+          workDuration: 0,
+          lateArrival: 0,
+          earlyDeparture: 0,
+          expectedWorkHours: 0,
+          checkinStatus: "Day Off",
+          checkoutStatus: "Day Off",
+          expectedCheckinTime: null,
+          expectedCheckoutTime: null,
+          isOverTime: false,
+          overtTimeStart: null,
+          overtTimeEnd: null,
+          overTimeMinutes: 0,
+          overTimeStatus: null,
+          remarks: "Day Off (holiday or scheduled leave). Record recalculated due to schedule change.",
+          isManuallyUpdated: true
+        },
+        { new: true }
+      ).populate("employeeId");
+      console.log(`✅ Successfully updated record as Day Off`);
+
+      return successResponse(
+        res,
+        200,
+        "Attendance record recalculated successfully as Day Off",
+        updatedRecord
+      );
+    }
+
+    // Use the specific start and end times from the day's schedule
+    const shiftStartTime = moment(daySchedule.start).toDate();
+    const shiftEndTime = moment(daySchedule.end).toDate();
+    console.log(`⏰ Shift start time: ${shiftStartTime.toISOString()}`);
+    console.log(`⏰ Shift end time: ${shiftEndTime.toISOString()}`);
+
+    // Calculate the extended window for early check-in
+    const earlyWindow = moment(shiftStartTime)
+      .subtract(6, "hours")
+      .toDate();
+    
+    // Calculate the extended window for late check-out
+    const lateWindow = moment(shiftEndTime)
+      .add(6, "hours")
+      .toDate();
+    console.log(`🔍 Looking for attendance logs between: ${earlyWindow.toISOString()} and ${lateWindow.toISOString()}`);
+
+    // Get all logs that could be relevant for this shift (within extended windows)
+    const logs = await AttendanceLog.find({
+      deviceUserId: employeeId,
+      recordTime: {
+        $gte: earlyWindow,
+        $lte: lateWindow,
+      },
+    }).sort({ recordTime: 1 });
+    console.log(`📊 Found ${logs.length} attendance logs for this time range`);
+    
+    if (logs.length > 0) {
+      console.log(`📝 First log time: ${logs[0].recordTime.toISOString()}`);
+      console.log(`📝 Last log time: ${logs[logs.length - 1].recordTime.toISOString()}`);
+    }
+
+    // Calculate expected work hours directly from the day schedule
+    const expectedWorkHours = daySchedule.actual_expected_minutes || 
+      Math.round((shiftEndTime - shiftStartTime) / (1000 * 60));
+    console.log(`⏱️ Expected work hours: ${expectedWorkHours} minutes`);
+
+    // If no logs found, mark as absent
+    if (logs.length === 0) {
+      console.log(`❌ No attendance logs found, marking as Absent`);
+      const updatedRecord = await DailyAttendance.findByIdAndUpdate(
+        id,
+        {
+          status: "Absent",
+          firstEntry: null,
+          lastExit: null,
+          workDuration: 0,
+          lateArrival: 0,
+          earlyDeparture: 0,
+          expectedWorkHours: expectedWorkHours,
+          checkinStatus: "Absent",
+          checkoutStatus: "Absent",
+          expectedCheckinTime: shiftStartTime,
+          expectedCheckoutTime: shiftEndTime,
+          isOverTime: false,
+          overtTimeStart: null,
+          overtTimeEnd: null,
+          overTimeMinutes: 0,
+          overTimeStatus: null,
+          remarks: "Absent. Record recalculated due to schedule change.",
+          isManuallyUpdated: true
+        },
+        { new: true }
+      ).populate("employeeId");
+      console.log(`✅ Successfully updated record as Absent`);
+
+      return successResponse(
+        res,
+        200,
+        "Attendance record recalculated successfully as Absent",
+        updatedRecord
+      );
+    }
+
+    // Use the first log as the first entry
+    const firstEntry = logs[0].recordTime;
+    console.log(`🕒 First entry time: ${firstEntry.toISOString()}`);
+    
+    // Use the last log as the last exit
+    const lastExit = logs[logs.length - 1].recordTime;
+    console.log(`🕒 Last exit time: ${lastExit.toISOString()}`);
+
+    // Get the work schedule for grace period
+    console.log(`🔍 Looking for work schedule ID: ${daySchedule.time_slot_id}`);
+    const workSchedule = await WorkSchedule.findById(daySchedule.time_slot_id);
+    if (!workSchedule) {
+      console.log(`❌ Work schedule not found for ID: ${daySchedule.time_slot_id}`);
+      return errorRresponse(res, 404, "Work schedule not found");
+    }
+    console.log(`✅ Found work schedule with grace period: ${workSchedule.graceTimeInMinutes} minutes`);
+
+    // Calculate work duration in minutes
+    let workDuration = Math.round((lastExit - firstEntry) / (1000 * 60));
+    console.log(`⏱️ Work duration: ${workDuration} minutes`);
+
+    // Check if late arrival (considering grace period)
+    const lateArrival = firstEntry > shiftStartTime
+      ? Math.max(0, Math.round((firstEntry - shiftStartTime) / (1000 * 60)) - workSchedule.graceTimeInMinutes)
+      : 0;
+    console.log(`⏰ Late arrival: ${lateArrival} minutes (after ${workSchedule.graceTimeInMinutes} min grace period)`);
+
+    // Check if early departure
+    const earlyDeparture = lastExit < shiftEndTime
+      ? Math.round((shiftEndTime - lastExit) / (1000 * 60))
+      : 0;
+    console.log(`⏰ Early departure: ${earlyDeparture} minutes`);
+
+    // Determine check-in status
+    let checkinStatus = "On Time";
+    if (lateArrival > 0) {
+      checkinStatus = "Late";
+    } else if (firstEntry < shiftStartTime) {
+      // If checked in more than 10 minutes early
+      const earlyMinutes = Math.round((shiftStartTime - firstEntry) / (1000 * 60));
+      if (earlyMinutes > 10) {
+        checkinStatus = "Early";
+      }
+    }
+    console.log(`📊 Check-in status: ${checkinStatus}`);
+
+    // Determine check-out status
+    let checkoutStatus = "On Time";
+    if (earlyDeparture > 0) {
+      checkoutStatus = "Early";
+    } else if (lastExit > shiftEndTime) {
+      // If checked out more than 10 minutes after shift end
+      const lateMinutes = Math.round((lastExit - shiftEndTime) / (1000 * 60));
+      if (lateMinutes > 10) {
+        checkoutStatus = "Late";
+      }
+    }
+    console.log(`📊 Check-out status: ${checkoutStatus}`);
+
+    // Determine attendance status
+    let status = "Present";
+    const workHours = workDuration / 60;
+    console.log(`⏱️ Work hours: ${workHours.toFixed(2)} hours`);
+    console.log(`📊 Min work hours for half day: ${workSchedule.minWorkHoursForHalfDay}`);
+    console.log(`📊 Min work hours for full day: ${workSchedule.minWorkHours}`);
+
+    if (workHours < workSchedule.minWorkHoursForHalfDay) {
+      status = "Less than Half Day"; // Less than minimum hours for half day
+    } else if (workHours < workSchedule.minWorkHours) {
+      status = "Half Day";
+    } else if (lateArrival > 0) {
+      status = "Late";
+    }
+    console.log(`📊 Attendance status: ${status}`);
+
+    // Calculate overtime using the utility function
+    console.log(`🔄 Calculating overtime details...`);
+    const attendanceProcessor = require("../utils/attendanceProcessor");
+    const overtimeDetails = attendanceProcessor.calculateOvertimeDetails(
+      firstEntry,
+      lastExit,
+      shiftStartTime,
+      shiftEndTime
+    );
+    console.log(`📊 Overtime calculation results:`, JSON.stringify({
+      isOverTime: overtimeDetails.isOverTime,
+      overtimeMinutes: overtimeDetails.overtimeMinutes,
+      overtimeStart: overtimeDetails.overtimeStart,
+      overtimeEnd: overtimeDetails.overtimeEnd
+    }, null, 2));
+
+    // Generate remarks
+    const remarks = attendanceProcessor.generateRemarks(
+      status,
+      lateArrival,
+      earlyDeparture,
+      checkinStatus,
+      checkoutStatus,
+      workDuration,
+      expectedWorkHours,
+      overtimeDetails.isOverTime
+    ) + ". Record recalculated due to schedule change.";
+    console.log(`📝 Generated remarks: ${remarks}`);
+
+    // Determine if relaxation request is needed
+    let relaxationRequest = false;
+    let relaxationRequestStatus = null;
+    if (lateArrival > 1 || earlyDeparture > 0) {
+      relaxationRequest = record.relaxationRequest || false;
+      relaxationRequestStatus = record.relaxationRequestStatus || null;
+      console.log(`🔄 Keeping existing relaxation request: ${relaxationRequest}, status: ${relaxationRequestStatus}`);
+    }
+
+    // Prepare update data
+    const updateData = {
+      status,
+      firstEntry,
+      lastExit,
+      workDuration,
+      lateArrival,
+      earlyDeparture,
+      expectedWorkHours,
+      checkinStatus,
+      checkoutStatus,
+      expectedCheckinTime: shiftStartTime,
+      expectedCheckoutTime: shiftEndTime,
+      isOverTime: overtimeDetails.isOverTime,
+      overtTimeStart: overtimeDetails.overtimeStart,
+      overtTimeEnd: overtimeDetails.overtimeEnd,
+      overTimeMinutes: overtimeDetails.overtimeMinutes,
+      overTimeStatus: overtimeDetails.isOverTime ? "Pending" : null,
+      remarks,
+      isManuallyUpdated: true,
+      relaxationRequest,
+      relaxationRequestStatus
+    };
+    console.log(`📝 Update data prepared for database update`);
+
+    // Update the record with the recalculated values
+    console.log(`🔄 Updating attendance record in database...`);
+    const updatedRecord = await DailyAttendance.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true }
+    ).populate("employeeId");
+    console.log(`✅ Successfully updated attendance record`);
+
+    return successResponse(
+      res,
+      200,
+      "Attendance record recalculated successfully",
+      updatedRecord
+    );
+
+  } catch (error) {
+    console.error("❌ ERROR in recalculateAttendance:", error);
+    console.error(error.stack);
+    return errorRresponse(res, 500, "Error recalculating attendance record", error);
+  }
+};
+
 module.exports = {
   processLogs,
   getRecords,
@@ -1458,5 +1796,6 @@ module.exports = {
   updateOvertimeDetails,
   updateRelaxationRequest,
   getRelaxationRequests,
-  getRelaxationRequestStats
+  getRelaxationRequestStats,
+  recalculateAttendance
 };

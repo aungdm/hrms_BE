@@ -168,24 +168,176 @@ const getRecords = async (req, res) => {
       userId,
       processed,
       deviceId,
+      search
     } = req.query;
+
+    console.log("Request query parameters:", { 
+      page, 
+      perPage, 
+      startDate, 
+      endDate, 
+      userId, 
+      processed: `'${processed}'`, // Log with quotes to see empty strings
+      deviceId, 
+      search 
+    });
 
     const query = {};
 
+    // Date range filter
     if (startDate || endDate) {
       query.recordTime = {};
       if (startDate) query.recordTime.$gte = new Date(startDate);
-      if (endDate) query.recordTime.$lte = new Date(endDate);
+      if (endDate) {
+        // Set time to end of day for endDate
+        const endOfDay = new Date(endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        query.recordTime.$lte = endOfDay;
+      }
     }
 
-    if (userId) query.deviceUserId = userId;
-    if (processed !== undefined) query.isProcessed = processed === "true";
-    if (deviceId) query.deviceId = deviceId;
+    // Employee ID filter
+    if (userId) {
+      console.log(`Processing userId filter: ${userId}`);
+      try {
+        // Check if userId is a valid ObjectId
+        const mongoose = require('mongoose');
+        
+        // If userId is numeric (like "2002"), we need to handle it differently
+        // as it's likely a user_defined_code rather than MongoDB ObjectId
+        if (!isNaN(userId)) {
+          console.log(`userId ${userId} appears to be numeric, treating as user_defined_code`);
+          // First, find the employee with this user_defined_code
+          const Employee = require('../models/employee');
+          const employee = await Employee.findOne({ user_defined_code: userId });
+          
+          if (employee) {
+            console.log(`Found employee with user_defined_code ${userId}: ${employee.name} (${employee._id})`);
+            // If found, use the employee's _id
+            query.deviceUserId = employee._id;
+          } else {
+            console.log(`No employee found with user_defined_code ${userId}, using directly as deviceUserId`);
+            // If no employee found with this code, use it directly
+            // This might be the case if the deviceUserId is stored as a string
+            query.deviceUserId = userId;
+          }
+        } 
+        // If it's a valid ObjectId, use it directly
+        else if (mongoose.Types.ObjectId.isValid(userId)) {
+          console.log(`userId ${userId} is a valid ObjectId`);
+          query.deviceUserId = mongoose.Types.ObjectId(userId);
+        }
+        // Otherwise, it might be a string identifier
+        else {
+          console.log(`userId ${userId} is not a valid ObjectId or numeric ID, using as-is`);
+          query.deviceUserId = userId;
+        }
+      } catch (error) {
+        console.error(`Error processing userId filter: ${error.message}`);
+        // Don't fail the whole request if there's an issue with the userId filter
+        // Just use it as-is
+        query.deviceUserId = userId;
+      }
+    }
 
-    console.log({ query });
-    const [records, total] = await Promise.all([
+    // Processed status filter - Only apply if explicitly set to "true" or "false"
+    if (processed === "true" || processed === "false") {
+      console.log(`Applying processed filter: ${processed}`);
+      query.isProcessed = processed === "true";
+    } else {
+      console.log("No processed filter applied - showing all logs");
+    }
+
+    // Device ID filter
+    if (deviceId) {
+      query.deviceId = deviceId;
+    }
+
+    // Text search functionality
+    if (search) {
+      // We need to search in the related employee data
+      // This will be handled by a separate aggregation pipeline
+      console.log(`Searching for: ${search}`);
+    }
+
+    console.log("Query parameters:", { query, page, perPage, search });
+    
+    // If we have a search term, use aggregation to search in related employee data
+    let records = [];
+    let total = 0;
+    
+    if (search && search.trim() !== '') {
+      const Employee = require('../models/employee');
+      
+      // First find employees matching the search term
+      const matchingEmployees = await Employee.find({
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { user_defined_code: { $regex: search, $options: 'i' } }
+        ]
+      }).select('_id');
+      
+      const employeeIds = matchingEmployees.map(emp => emp._id);
+      
+      if (employeeIds.length > 0) {
+        // Add employee IDs to the query
+        if (query.deviceUserId) {
+          // If there's already a userId filter, we need to ensure it's one of these matching employees
+          if (!employeeIds.includes(query.deviceUserId)) {
+            // No matches possible, return empty result
+            return successResponse(res, 200, "Data Fetched Successfully", {
+              data: [],
+              meta: {
+                total: 0,
+                page: Number(page),
+                perPage: Number(perPage),
+                totalPages: 0,
+              },
+            });
+          }
+        } else {
+          // Add the employee IDs to the query
+          query.deviceUserId = { $in: employeeIds };
+        }
+      } else if (search) {
+        // If no employees match the search but search was provided, return empty results
+        return successResponse(res, 200, "Data Fetched Successfully", {
+          data: [],
+          meta: {
+            total: 0,
+            page: Number(page),
+            perPage: Number(perPage),
+            totalPages: 0,
+          },
+        });
+      }
+      
+      // Also check if search matches device ID
+      if (search && !query.deviceId) {
+        const deviceMatch = await AttendanceLog.distinct('deviceId', {
+          deviceId: { $regex: search, $options: 'i' }
+        });
+        
+        if (deviceMatch.length > 0) {
+          if (query.deviceUserId) {
+            // If we already have employee filters, use $or to combine with device search
+            query.$or = [
+              { deviceUserId: query.deviceUserId },
+              { deviceId: { $in: deviceMatch } }
+            ];
+            delete query.deviceUserId; // Remove from the main query since it's in $or now
+          } else {
+            // Just add the device filter
+            query.deviceId = { $in: deviceMatch };
+          }
+        }
+      }
+    }
+    
+    // Execute the query with all filters applied
+    [records, total] = await Promise.all([
       AttendanceLog.find(query)
-        .populate("deviceUserId")
+        .populate("deviceUserId", "name user_defined_code department designation")
         .sort({ recordTime: -1 })
         .skip((page - 1) * perPage)
         .limit(perPage),
