@@ -1,22 +1,22 @@
 const express = require("express");
 const router = express.Router();
 const {
-  createDeduction,
-  updateDeduction,
-  getDeductions,
-  getDeduction,
-  deleteDeduction,
-  updateDeductionStatus,
-  deleteMultipleDeductions
-} = require("../controllers/fineDeductionsController");
+  createArrears,
+  updateArrears,
+  getArrearsRecords,
+  getArrearsRecord,
+  deleteArrearsRecord,
+  updateArrearsStatus,
+  deleteMultipleArrearsRecords
+} = require("../controllers/arrearsController");
 
-// Routes for other deductions
-router.post("/", createDeduction);
-router.put("/:id", updateDeduction);
-router.get("/", getDeductions);
-router.get("/:id", getDeduction);
-router.delete("/:id", deleteDeduction);
-router.patch("/:id/status", updateDeductionStatus);
-router.post("/delete-multiple", deleteMultipleDeductions);
+// Routes for arrears
+router.post("/", createArrears);
+router.put("/:id", updateArrears);
+router.get("/", getArrearsRecords);
+router.get("/:id", getArrearsRecord);
+router.delete("/:id", deleteArrearsRecord);
+router.patch("/:id/status", updateArrearsStatus);
+router.post("/delete-multiple", deleteMultipleArrearsRecords);
 
 module.exports = router; 

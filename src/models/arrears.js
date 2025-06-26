@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const FineDeductionSchema = new mongoose.Schema({
+const ArrearsSchema = new mongoose.Schema({
   employeeId: { 
     type: String, 
     required: true 
@@ -34,4 +34,4 @@ const FineDeductionSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-module.exports = mongoose.model("FineDeduction", FineDeductionSchema);
+module.exports = mongoose.model("Arrears", ArrearsSchema);

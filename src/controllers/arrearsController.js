@@ -1,9 +1,9 @@
 const { successResponse, errorRresponse } = require("../utils/response");
-const FineDeduction = require("../models/fineDeduction");
+const Arrears = require("../models/arrears");
 const Employee = require("../models/employee");
 
-// Create a new deduction
-const createDeduction = async (req, res) => {
+// Create a new arrears record
+const createArrears = async (req, res) => {
   try {
     const {
       employeeId,
@@ -29,8 +29,8 @@ const createDeduction = async (req, res) => {
       return errorRresponse(res, 404, "Employee not found");
     }
 
-    // Create new deduction
-    const deduction = new FineDeduction({
+    // Create new arrears record
+    const arrears = new Arrears({
       employeeId,
       deductionType,
       amount,
@@ -39,22 +39,22 @@ const createDeduction = async (req, res) => {
       status: status || "Pending"
     });
 
-    await deduction.save();
+    await arrears.save();
 
     return successResponse(
       res,
       201,
-      "Fine Deduction Created Successfully",
-      deduction
+      "Arrears Record Created Successfully",
+      arrears
     );
   } catch (error) {
-    console.error("Error creating fine deduction:", error);
-    return errorRresponse(res, 500, "Error creating fine deduction", error);
+    console.error("Error creating arrears record:", error);
+    return errorRresponse(res, 500, "Error creating arrears record", error);
   }
 };
 
-// Update a deduction
-const updateDeduction = async (req, res) => {
+// Update an arrears record
+const updateArrears = async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -63,17 +63,18 @@ const updateDeduction = async (req, res) => {
       amount,
       deductionDate,
       description,
-      status
+      status,
+      processed
     } = req.body;
 
-    // Find the deduction
-    const deduction = await FineDeduction.findById(id);
-    if (!deduction) {
-      return errorRresponse(res, 404, "Fine deduction not found");
+    // Find the arrears record
+    const arrears = await Arrears.findById(id);
+    if (!arrears) {
+      return errorRresponse(res, 404, "Arrears record not found");
     }
 
     // Check if employee exists if employeeId is being updated
-    if (employeeId && employeeId !== deduction.employeeId) {
+    if (employeeId && employeeId !== arrears.employeeId) {
       const employee = await Employee.findById(employeeId);
       if (!employee) {
         return errorRresponse(res, 404, "Employee not found");
@@ -81,29 +82,30 @@ const updateDeduction = async (req, res) => {
     }
 
     // Update fields
-    if (employeeId) deduction.employeeId = employeeId;
-    if (deductionType) deduction.deductionType = deductionType;
-    if (amount !== undefined) deduction.amount = amount;
-    if (deductionDate) deduction.deductionDate = deductionDate;
-    if (description !== undefined) deduction.description = description;
-    if (status) deduction.status = status;
+    if (employeeId) arrears.employeeId = employeeId;
+    if (deductionType) arrears.deductionType = deductionType;
+    if (amount !== undefined) arrears.amount = amount;
+    if (deductionDate) arrears.deductionDate = deductionDate;
+    if (description !== undefined) arrears.description = description;
+    if (status) arrears.status = status;
+    if (processed !== undefined) arrears.processed = processed;
 
-    await deduction.save();
+    await arrears.save();
 
     return successResponse(
       res,
       200,
-      "Fine Deduction Updated Successfully",
-      deduction
+      "Arrears Record Updated Successfully",
+      arrears
     );
   } catch (error) {
-    console.error("Error updating fine deduction:", error);
-    return errorRresponse(res, 500, "Error updating fine deduction", error);
+    console.error("Error updating arrears record:", error);
+    return errorRresponse(res, 500, "Error updating arrears record", error);
   }
 };
 
-// Get all deductions with filtering and pagination
-const getDeductions = async (req, res) => {
+// Get all arrears records with filtering and pagination
+const getArrearsRecords = async (req, res) => {
   try {
     const {
       page = 1,
@@ -112,6 +114,7 @@ const getDeductions = async (req, res) => {
       employeeId,
       startDate,
       endDate,
+      processed,
       sortOrder = "Desc",
       sortField = "deductionDate",
       search = "",
@@ -122,12 +125,17 @@ const getDeductions = async (req, res) => {
     // Apply filters
     if (status) query.status = status;
     if (employeeId) query.employeeId = employeeId;
+    if (processed !== undefined) query.processed = processed === "true";
     
     // Date range filter
     if (startDate || endDate) {
       query.deductionDate = {};
       if (startDate) query.deductionDate.$gte = new Date(startDate);
-      if (endDate) query.deductionDate.$lte = new Date(endDate);
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        query.deductionDate.$lte = endDateObj;
+      }
     }
 
     // Search by description or deduction type
@@ -142,27 +150,27 @@ const getDeductions = async (req, res) => {
       [sortField]: sortOrder.toLowerCase() === "desc" ? -1 : 1,
     };
 
-    const [deductions, total] = await Promise.all([
-      FineDeduction.find(query)
+    const [arrearsRecords, total] = await Promise.all([
+      Arrears.find(query)
         .sort(sortOptions)
         .skip((page - 1) * perPage)
         .limit(perPage),
-      FineDeduction.countDocuments(query),
+      Arrears.countDocuments(query),
     ]);
 
     // Manually populate employee data
-    const deductionsWithEmployees = await Promise.all(
-      deductions.map(async (deduction) => {
-        const employee = await Employee.findById(deduction.employeeId).select('name user_defined_code department');
+    const arrearsWithEmployees = await Promise.all(
+      arrearsRecords.map(async (record) => {
+        const employee = await Employee.findById(record.employeeId).select('name user_defined_code department');
         return {
-          ...deduction.toObject(),
+          ...record.toObject(),
           employeeId: employee || null
         };
       })
     );
 
-    return successResponse(res, 200, "Fine Deductions Fetched Successfully", {
-      data: deductionsWithEmployees,
+    return successResponse(res, 200, "Arrears Records Fetched Successfully", {
+      data: arrearsWithEmployees,
       meta: {
         total,
         page: Number(page),
@@ -171,65 +179,65 @@ const getDeductions = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error fetching fine deductions:", error);
-    return errorRresponse(res, 500, "Error fetching fine deductions", error);
+    console.error("Error fetching arrears records:", error);
+    return errorRresponse(res, 500, "Error fetching arrears records", error);
   }
 };
 
-// Get a single deduction
-const getDeduction = async (req, res) => {
+// Get a single arrears record
+const getArrearsRecord = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const deduction = await FineDeduction.findById(id);
+    const arrears = await Arrears.findById(id);
     
-    if (!deduction) {
-      return errorRresponse(res, 404, "Fine deduction not found");
+    if (!arrears) {
+      return errorRresponse(res, 404, "Arrears record not found");
     }
 
     // Manually populate employee data
-    const employee = await Employee.findById(deduction.employeeId).select('name user_defined_code department');
-    const deductionWithEmployee = {
-      ...deduction.toObject(),
+    const employee = await Employee.findById(arrears.employeeId).select('name user_defined_code department');
+    const arrearsWithEmployee = {
+      ...arrears.toObject(),
       employeeId: employee || null
     };
 
     return successResponse(
       res,
       200,
-      "Fine Deduction Fetched Successfully",
-      deductionWithEmployee
+      "Arrears Record Fetched Successfully",
+      arrearsWithEmployee
     );
   } catch (error) {
-    console.error("Error fetching fine deduction:", error);
-    return errorRresponse(res, 500, "Error fetching fine deduction", error);
+    console.error("Error fetching arrears record:", error);
+    return errorRresponse(res, 500, "Error fetching arrears record", error);
   }
 };
 
-// Delete a deduction
-const deleteDeduction = async (req, res) => {
+// Delete an arrears record
+const deleteArrearsRecord = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const deduction = await FineDeduction.findByIdAndDelete(id);
-    if (!deduction) {
-      return errorRresponse(res, 404, "Fine deduction not found");
+    const arrears = await Arrears.findByIdAndDelete(id);
+    if (!arrears) {
+      return errorRresponse(res, 404, "Arrears record not found");
     }
 
     return successResponse(
       res,
       200,
-      "Fine Deduction Deleted Successfully",
-      deduction
+      "Arrears Record Deleted Successfully",
+      arrears
     );
   } catch (error) {
-    console.error("Error deleting fine deduction:", error);
-    return errorRresponse(res, 500, "Error deleting fine deduction", error);
+    console.error("Error deleting arrears record:", error);
+    return errorRresponse(res, 500, "Error deleting arrears record", error);
   }
 };
 
-// Update deduction status
-const updateDeductionStatus = async (req, res) => {
+// Update arrears status
+const updateArrearsStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -238,55 +246,55 @@ const updateDeductionStatus = async (req, res) => {
       return errorRresponse(res, 400, "Valid status is required (Pending, Approved, Rejected)");
     }
 
-    const deduction = await FineDeduction.findById(id);
-    if (!deduction) {
-      return errorRresponse(res, 404, "Fine deduction not found");
+    const arrears = await Arrears.findById(id);
+    if (!arrears) {
+      return errorRresponse(res, 404, "Arrears record not found");
     }
 
-    deduction.status = status;
-    await deduction.save();
+    arrears.status = status;
+    await arrears.save();
 
     return successResponse(
       res,
       200,
-      `Fine deduction ${status.toLowerCase()} successfully`,
-      deduction
+      `Arrears record ${status.toLowerCase()} successfully`,
+      arrears
     );
   } catch (error) {
-    console.error("Error updating fine deduction status:", error);
-    return errorRresponse(res, 500, "Error updating fine deduction status", error);
+    console.error("Error updating arrears status:", error);
+    return errorRresponse(res, 500, "Error updating arrears status", error);
   }
 };
 
-// Delete multiple deductions
-const deleteMultipleDeductions = async (req, res) => {
+// Delete multiple arrears records
+const deleteMultipleArrearsRecords = async (req, res) => {
   try {
     const { ids } = req.body;
 
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return errorRresponse(res, 400, "Valid array of fine deduction IDs is required");
+      return errorRresponse(res, 400, "Valid array of arrears record IDs is required");
     }
 
-    const result = await FineDeduction.deleteMany({ _id: { $in: ids } });
+    const result = await Arrears.deleteMany({ _id: { $in: ids } });
 
     return successResponse(
       res,
       200,
-      `${result.deletedCount} fine deductions deleted successfully`,
+      `${result.deletedCount} arrears records deleted successfully`,
       { deletedCount: result.deletedCount }
     );
   } catch (error) {
-    console.error("Error deleting multiple fine deductions:", error);
-    return errorRresponse(res, 500, "Error deleting multiple fine deductions", error);
+    console.error("Error deleting multiple arrears records:", error);
+    return errorRresponse(res, 500, "Error deleting multiple arrears records", error);
   }
 };
 
 module.exports = {
-  createDeduction,
-  updateDeduction,
-  getDeductions,
-  getDeduction,
-  deleteDeduction,
-  updateDeductionStatus,
-  deleteMultipleDeductions
+  createArrears,
+  updateArrears,
+  getArrearsRecords,
+  getArrearsRecord,
+  deleteArrearsRecord,
+  updateArrearsStatus,
+  deleteMultipleArrearsRecords
 };
