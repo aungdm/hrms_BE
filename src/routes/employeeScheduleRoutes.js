@@ -8,7 +8,8 @@ const {
   updateMultipleEmployeeScheduleDays,
   generateAllEmployeeSchedules,
   deleteEmployeeSchedule,
-  revertEmployeeSchedulesToDefault
+  revertEmployeeSchedulesToDefault,
+  processMonthAttendance
 } = require("../controllers/employeeScheduleController");
 
 // Generate a schedule for a specific employee
@@ -34,5 +35,8 @@ router.delete("/:id", deleteEmployeeSchedule);
 
 // Add route for reverting schedules to default
 router.post("/revert", revertEmployeeSchedulesToDefault);
+
+// Process attendance for a specific month
+router.post("/process-month-attendance", processMonthAttendance);
 
 module.exports = router; 

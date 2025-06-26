@@ -1033,17 +1033,116 @@ const revertEmployeeSchedulesToDefault = async (req, res) => {
     );
   }
 };
+
+// Process attendance for a specific month
+const processMonthAttendance = async (req, res) => {
+  try {
+    const { month, year, employeeId, forceReprocess = false } = req.body;
+    
+    if (!month || !year) {
+      return errorRresponse(res, 400, "Month and year are required");
+    }
+    
+    // Create date range for the entire month
+    const startDate = moment({ year, month: month - 1, day: 1 }).startOf('day').toDate();
+    const endDate = moment({ year, month: month - 1 }).endOf('month').toDate();
+    
+    console.log(`Processing attendance for ${moment(startDate).format('MMMM YYYY')} (${startDate.toISOString()} to ${endDate.toISOString()})`);
+    console.log(`Days in month: ${moment(startDate).daysInMonth()}`);
+    
+    // Prepare employee filter if specified
+    const employeeFilter = employeeId ? [employeeId] : null;
+    
+    // If forceReprocess is true, mark all attendance logs for this period as unprocessed
+    if (forceReprocess) {
+      console.log('Force reprocess option enabled - marking logs as unprocessed');
+      
+      // Get all logs within the date range
+      const logsQuery = {
+        recordTime: {
+          $gte: moment(startDate).startOf('day').subtract(12, 'hours').toDate(),
+          $lte: moment(endDate).endOf('day').add(12, 'hours').toDate()
+        }
+      };
+      
+      // Add employee filter if specified
+      if (employeeFilter) {
+        logsQuery.deviceUserId = { $in: employeeFilter };
+      }
+      
+      // Mark logs as unprocessed
+      const AttendanceLog = require('../models/attendanceLogs');
+      const updateResult = await AttendanceLog.updateMany(
+        logsQuery,
+        { $set: { isProcessed: false } }
+      );
+      
+      console.log(`Marked ${updateResult.modifiedCount} logs as unprocessed`);
+      
+      // Delete existing daily attendance records for this period
+      const DailyAttendance = require('../models/dailyAttendance');
+      const deleteQuery = {
+        date: {
+          $gte: moment(startDate).startOf('day').toDate(),
+          $lte: moment(endDate).endOf('day').toDate()
+        }
+      };
+      
+      // Add employee filter if specified
+      if (employeeFilter) {
+        deleteQuery.employeeId = { $in: employeeFilter };
+      }
+      
+      const deleteResult = await DailyAttendance.deleteMany(deleteQuery);
+      console.log(`Deleted ${deleteResult.deletedCount} existing daily attendance records`);
+    }
+    
+    // Import the attendance processor
+    const { processAttendanceLogs, verifyMonthAttendance } = require('../utils/attendanceProcessor');
+    
+    // Process the month's attendance
+    console.log('Step 1: Processing attendance logs');
+    const result = await processAttendanceLogs(startDate, endDate, employeeFilter);
+    
+    // Run a dedicated verification step to ensure all days have records
+    console.log('Step 2: Running verification to ensure all days have attendance records');
+    const verificationResult = await verifyMonthAttendance(startDate, endDate, employeeFilter);
+    
+    // Combine results
+    const combinedResult = {
+      ...result,
+      created: result.created + verificationResult.recordsCreated,
+      absentsCreated: (result.absentsCreated || 0) + verificationResult.absentsCreated,
+      missingDaysFixed: verificationResult.recordsCreated,
+      verificationDetails: verificationResult
+    };
+    
+    return successResponse(res, 200, "Monthly attendance processed successfully", {
+      month,
+      year,
+      startDate,
+      endDate,
+      daysInMonth: moment(startDate).daysInMonth(),
+      ...combinedResult
+    });
+  } catch (error) {
+    console.error("Error processing monthly attendance:", error);
+    return errorRresponse(res, 500, "Error processing monthly attendance", error);
+  }
+};
+
 // Export functions
 module.exports = {
   generateEmployeeSchedule,
   getEmployeeSchedule,
   getAllEmployeeSchedules,
   updateEmployeeScheduleDay,
-  updateMultipleEmployeeScheduleDays,
   generateAllEmployeeSchedules,
   deleteEmployeeSchedule,
   generateScheduleForNewEmployee,
+  updateMultipleEmployeeScheduleDays,
   revertEmployeeSchedulesToDefault,
+  processMonthAttendance
 };
 
 

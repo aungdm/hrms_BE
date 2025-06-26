@@ -49,21 +49,26 @@ const processAttendanceLogs = async (
       `Starting attendance processing from ${startDate.toISOString()} to ${endDate.toISOString()}`
     );
     
-    // if (employeeIds && employeeIds.length) {
-    //   console.log(`Processing for ${employeeIds.length} specific employees`);
-    // } else {
-    //   console.log(`Processing for all employees`);
-    // }
-
+    // Check if we're processing a full month
+    const isFullMonth = moment(startDate).date() === 1 && 
+                        moment(endDate).date() === moment(endDate).daysInMonth();
+    
+    if (isFullMonth) {
+      console.log(`Processing full month: ${moment(startDate).format('YYYY-MM')}`);
+    }
+    
     // Prepare date range - expand range by 6 hours to capture cross-day entries
+    // For month boundaries, extend the window further to ensure we catch all relevant logs
     const start = moment(startDate)
       .startOf("day")
-      .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS, "hours")
+      .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS + (isFullMonth ? 24 : 0), "hours")
       .toDate();
     const end = moment(endDate)
       .endOf("day")
-      .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS, "hours")
+      .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS + (isFullMonth ? 24 : 0), "hours")
       .toDate();
+    
+    console.log(`Expanded processing window: ${start.toISOString()} to ${end.toISOString()}`);
 
     // Query to get unprocessed logs within date range
     const query = {
@@ -83,6 +88,8 @@ const processAttendanceLogs = async (
         : {};
 
     const employees = await Employee.find(employeeQuery).lean();
+    console.log(`Processing for ${employees.length} employees`);
+    
     // Process each day in the date range
     const currentDate = moment(startDate).startOf("day"); // Use original startDate for processing days
     const lastDate = moment(endDate).endOf("day"); // Use original endDate for processing days
@@ -91,23 +98,49 @@ const processAttendanceLogs = async (
     let created = 0;
     let updated = 0;
     let errors = 0;
+    let absentsCreated = 0;
+
+    // For full month processing, ensure we have the employee schedules for this month
+    if (isFullMonth) {
+      const monthNum = moment(startDate).month() + 1;
+      const yearNum = moment(startDate).year();
+      
+      console.log(`Ensuring employee schedules exist for ${monthNum}/${yearNum}`);
+      
+      // Check if schedules exist for all employees for this month
+      for (const employee of employees) {
+        const employeeSchedule = await EmployeeSchedule.findOne({
+          employee_id: employee._id,
+          month: monthNum,
+          year: yearNum
+        });
+        
+        if (!employeeSchedule) {
+          console.warn(`No schedule found for employee ${employee._id} for ${monthNum}/${yearNum}. Skipping this employee.`);
+          continue;
+        }
+      }
+    }
 
     // Process each day in the date range
     while (currentDate.isSameOrBefore(lastDate, "day")) {
+      const currentDateStr = currentDate.format('YYYY-MM-DD');
+      console.log(`Processing day: ${currentDateStr}`);
       
       // Process each employee for this day
       for (const employee of employees) {
         try {
           // Find the employee's schedule for this day
-          const currentDateStr = currentDate.format('YYYY-MM-DD');
           const monthNum = currentDate.month() + 1; // moment is 0-indexed for months
           const yearNum = currentDate.year();
+          
           // Get the employee schedule instead of work schedule
           const employeeSchedule = await EmployeeSchedule.findOne({
             employee_id: employee._id,
             month: monthNum,
             year: yearNum
           });
+          
           if (!employeeSchedule) {
             console.warn(`No employee schedule found for ${employee._id} for ${monthNum}/${yearNum}`);
             continue;
@@ -171,6 +204,9 @@ const processAttendanceLogs = async (
               $lte: lateWindow.toDate(),
             },
           }).sort({ recordTime: 1 });
+          
+          console.log(`Found ${logs.length} logs for employee ${employee._id} on ${currentDateStr}`);
+          
           if (logs.length > 0) {
             // Process daily attendance
             const result = await processDailyAttendance(
@@ -199,24 +235,39 @@ const processAttendanceLogs = async (
             const expectedWorkHoursForShift = daySchedule.actual_expected_minutes || 
               calculateExpectedWorkHours(shiftStartTime.toDate(), shiftEndTime.toDate());
             
-            await createOrUpdateDailyAttendance(
-              employee._id,
-              currentDate.toDate(),
-              "Absent",
-              null,
-              null,
-              0,
-              0,
-              0,
-              [],
-              expectedWorkHoursForShift,
-              "Absent",
-              "Absent",
-              shiftStartTime.toDate(),
-              shiftEndTime.toDate(),
-              false
-            );
-            created++;
+            // Check if an attendance record already exists for this day
+            const existingRecord = await DailyAttendance.findOne({
+              employeeId: employee._id,
+              date: {
+                $gte: moment(currentDate).startOf('day').toDate(),
+                $lte: moment(currentDate).endOf('day').toDate()
+              }
+            });
+            
+            if (!existingRecord) {
+              console.log(`Creating absent record for employee ${employee._id} on ${currentDateStr}`);
+              await createOrUpdateDailyAttendance(
+                employee._id,
+                currentDate.toDate(),
+                "Absent",
+                null,
+                null,
+                0,
+                0,
+                0,
+                [],
+                expectedWorkHoursForShift,
+                "Absent",
+                "Absent",
+                shiftStartTime.toDate(),
+                shiftEndTime.toDate(),
+                false
+              );
+              created++;
+              absentsCreated++;
+            } else {
+              console.log(`Attendance record already exists for employee ${employee._id} on ${currentDateStr}, status: ${existingRecord.status}`);
+            }
           }
         } catch (err) {
           console.error(
@@ -233,12 +284,120 @@ const processAttendanceLogs = async (
       currentDate.add(1, "day");
     }
 
+    // For full month processing, verify that every day has an attendance record for each employee
+    if (isFullMonth) {
+      console.log(`Verifying all days in the month have attendance records...`);
+      const monthNum = moment(startDate).month() + 1;
+      const yearNum = moment(startDate).year();
+      const daysInMonth = moment(startDate).daysInMonth();
+      
+      for (const employee of employees) {
+        // Get all attendance records for this employee in this month
+        const attendanceRecords = await DailyAttendance.find({
+          employeeId: employee._id,
+          date: {
+            $gte: moment(startDate).startOf('day').toDate(),
+            $lte: moment(endDate).endOf('day').toDate()
+          }
+        }).sort({ date: 1 });
+        
+        // Group by date to check for missing days
+        const recordedDates = attendanceRecords.map(record => 
+          moment(record.date).format('YYYY-MM-DD')
+        );
+        
+        // Check each day of the month
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dateToCheck = moment({ year: yearNum, month: monthNum - 1, day }).format('YYYY-MM-DD');
+          
+          if (!recordedDates.includes(dateToCheck)) {
+            console.log(`Missing attendance record for employee ${employee._id} on ${dateToCheck}`);
+            
+            // Try to find the employee's schedule for this day
+            const employeeSchedule = await EmployeeSchedule.findOne({
+              employee_id: employee._id,
+              month: monthNum,
+              year: yearNum
+            });
+            
+            if (employeeSchedule) {
+              const daySchedule = employeeSchedule.schedules.find(
+                s => moment(s.date).format('YYYY-MM-DD') === dateToCheck
+              );
+              
+              if (daySchedule) {
+                // If it's a work day, create an absent record
+                if (!daySchedule.isDayOff) {
+                  const shiftStartTime = moment(daySchedule.start);
+                  const shiftEndTime = moment(daySchedule.end);
+                  const expectedWorkHours = daySchedule.actual_expected_minutes || 
+                    (shiftEndTime.diff(shiftStartTime, 'minutes'));
+                  
+                  // Create absent record
+                  await createOrUpdateDailyAttendance(
+                    employee._id,
+                    moment(dateToCheck).toDate(),
+                    "Absent",
+                    null,
+                    null,
+                    0,
+                    0,
+                    0,
+                    [],
+                    expectedWorkHours,
+                    "Absent",
+                    "Absent",
+                    shiftStartTime.toDate(),
+                    shiftEndTime.toDate(),
+                    false
+                  );
+                  console.log(`Created absent record for ${employee._id} on ${dateToCheck}`);
+                  created++;
+                  absentsCreated++;
+                } else {
+                  // It's a day off, create a weekend/holiday record
+                  await createOrUpdateDailyAttendance(
+                    employee._id,
+                    moment(dateToCheck).toDate(),
+                    "Weekend",
+                    null,
+                    null,
+                    0,
+                    0,
+                    0,
+                    [],
+                    0,
+                    "Day Off",
+                    "Day Off",
+                    null,
+                    null,
+                    false
+                  );
+                  console.log(`Created day off record for ${employee._id} on ${dateToCheck}`);
+                  created++;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`
+    ======= PROCESSING SUMMARY =======
+    Logs processed: ${processed}
+    Records created: ${created} (including ${absentsCreated} absent records)
+    Records updated: ${updated}
+    Errors: ${errors}
+    ================================
+    `);
 
     return {
       processed,
       created,
       updated,
       errors,
+      absentsCreated
     }; 
   } catch (error) {
     console.error("Error in processAttendanceLogs:", error);
@@ -743,7 +902,7 @@ const processHourlyAttendanceLogs = async () => {
       isProcessed: false,
     }).sort({ recordTime: 1 });
 
-    // console.log(`Found ${unprocessedLogs.length} unprocessed logs in the time range`);
+    console.log(`Found ${unprocessedLogs.length} unprocessed logs in the time range`);
 
     if (unprocessedLogs.length === 0) {
       await updateLastProcessedTime(endTime);
@@ -760,6 +919,7 @@ const processHourlyAttendanceLogs = async () => {
       ...new Set(unprocessedLogs.map((log) => log.deviceUserId)),
     ];
     
+    console.log(`Found logs for ${employeeIds.length} unique employees`);
 
     // Get unique dates that need to be processed, accounting for cross-day shifts
     // We'll determine this for each employee based on their work schedule
@@ -784,15 +944,20 @@ const processHourlyAttendanceLogs = async () => {
         (log) => log.deviceUserId === employee._id
       );
 
+      console.log(`Processing ${employeeLogs.length} logs for employee ${employee._id}`);
+
       // For each log, determine the correct shift date
       for (const log of employeeLogs) {
         const shiftDate = await determineShiftDate(log.recordTime, employee._id);
-        dateRangeToProcess.add(shiftDate.format("YYYY-MM-DD"));
+        const dateStr = shiftDate.format("YYYY-MM-DD");
+        dateRangeToProcess.add(dateStr);
+        console.log(`Log at ${log.recordTime.toISOString()} mapped to shift date: ${dateStr}`);
       }
     }
 
     // Process each date that may be affected
     const dateArray = Array.from(dateRangeToProcess).sort();
+    console.log(`Dates to process: ${dateArray.join(', ')}`);
 
     // If no valid dates, just update the last processed time and return
     if (dateArray.length === 0) {
@@ -812,28 +977,85 @@ const processHourlyAttendanceLogs = async () => {
       "YYYY-MM-DD"
     ).toDate();
 
-    // console.log(`Processing date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+    console.log(`Processing date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
     
-    // Process the attendance logs for the affected dates and employees
-    const result = await processAttendanceLogs(startDate, endDate, employeeIds);
-
-    // Update the last processed time to avoid reprocessing the same logs
-    await updateLastProcessedTime(endTime);
-
-    console.log(`\n======================================================================`);
-    console.log(`HOURLY PROCESSING SUMMARY - ${new Date().toISOString()}`);
-    console.log(`======================================================================`);
-    console.log(`📊 Statistics:`);
-    console.log(`   - Logs processed: ${result.processed}`);
-    console.log(`   - Records created: ${result.created}`);
-    console.log(`   - Records updated: ${result.updated}`);
-    console.log(`   - Errors encountered: ${result.errors}`);
-    console.log(`   - Date range: ${dateArray.join(', ')}`);
-    console.log(`   - Employees affected: ${employeeIds.length}`);
-    console.log(`   - Processing duration: ${new Date() - new Date(startTime)}ms`);
-    console.log(`======================================================================\n\n`);
-
-    return result;
+    // Check if we're crossing a month boundary
+    const startMonth = moment(startDate).month();
+    const endMonth = moment(endDate).month();
+    const isMonthBoundary = startMonth !== endMonth;
+    
+    if (isMonthBoundary) {
+      console.log(`Month boundary detected: Processing across ${moment(startDate).format('MMMM')} and ${moment(endDate).format('MMMM')}`);
+      
+      // Special handling for month boundaries - process each month separately to ensure complete coverage
+      const monthsToProcess = new Set();
+      dateArray.forEach(dateStr => {
+        const dateMoment = moment(dateStr);
+        monthsToProcess.add(`${dateMoment.year()}-${dateMoment.month() + 1}`);
+      });
+      
+      console.log(`Will process these months: ${Array.from(monthsToProcess).join(', ')}`);
+      
+      let combinedResult = { processed: 0, created: 0, updated: 0, errors: 0 };
+      
+      // Process each month
+      for (const monthKey of monthsToProcess) {
+        const [year, month] = monthKey.split('-').map(Number);
+        const monthStartDate = moment({ year, month: month - 1, day: 1 }).toDate();
+        const monthEndDate = moment({ year, month: month - 1 }).endOf('month').toDate();
+        
+        console.log(`Processing month: ${year}-${month} (${monthStartDate.toISOString()} to ${monthEndDate.toISOString()})`);
+        
+        // Process this month
+        const monthResult = await processAttendanceLogs(monthStartDate, monthEndDate, employeeIds);
+        
+        // Combine results
+        combinedResult.processed += monthResult.processed;
+        combinedResult.created += monthResult.created;
+        combinedResult.updated += monthResult.updated;
+        combinedResult.errors += monthResult.errors;
+      }
+      
+      // Update the last processed time to avoid reprocessing the same logs
+      await updateLastProcessedTime(endTime);
+      
+      console.log(`\n======================================================================`);
+      console.log(`HOURLY PROCESSING SUMMARY - ${new Date().toISOString()}`);
+      console.log(`======================================================================`);
+      console.log(`📊 Statistics (across multiple months):`);
+      console.log(`   - Logs processed: ${combinedResult.processed}`);
+      console.log(`   - Records created: ${combinedResult.created}`);
+      console.log(`   - Records updated: ${combinedResult.updated}`);
+      console.log(`   - Errors encountered: ${combinedResult.errors}`);
+      console.log(`   - Date range: ${dateArray.join(', ')}`);
+      console.log(`   - Employees affected: ${employeeIds.length}`);
+      console.log(`   - Processing duration: ${new Date() - new Date(startTime)}ms`);
+      console.log(`======================================================================\n\n`);
+      
+      return combinedResult;
+    } else {
+      // Standard processing for dates within the same month
+      // Process the attendance logs for the affected dates and employees
+      const result = await processAttendanceLogs(startDate, endDate, employeeIds);
+  
+      // Update the last processed time to avoid reprocessing the same logs
+      await updateLastProcessedTime(endTime);
+  
+      console.log(`\n======================================================================`);
+      console.log(`HOURLY PROCESSING SUMMARY - ${new Date().toISOString()}`);
+      console.log(`======================================================================`);
+      console.log(`📊 Statistics:`);
+      console.log(`   - Logs processed: ${result.processed}`);
+      console.log(`   - Records created: ${result.created}`);
+      console.log(`   - Records updated: ${result.updated}`);
+      console.log(`   - Errors encountered: ${result.errors}`);
+      console.log(`   - Date range: ${dateArray.join(', ')}`);
+      console.log(`   - Employees affected: ${employeeIds.length}`);
+      console.log(`   - Processing duration: ${new Date() - new Date(startTime)}ms`);
+      console.log(`======================================================================\n\n`);
+  
+      return result;
+    }
   } catch (error) {
     console.error(`\n❌ ERROR IN ATTENDANCE PROCESSING: ${error.message}`);
     console.error(error.stack);
@@ -857,46 +1079,131 @@ const determineShiftDate = async (timestamp, employeeId) => {
   const logTime = moment(timestamp);
   const month = logTime.month() + 1;
   const year = logTime.year();
-  // console.log({ month, year, logTime }, "month and year and logTime");
-  // Get the employee schedule for this month/year
+  
+  console.log(`Determining shift date for log time: ${logTime.format('YYYY-MM-DD HH:mm:ss')}, month: ${month}, year: ${year}`);
+  
+  // First try with the current month's schedule
   const employeeSchedule = await EmployeeSchedule.findOne({
     employee_id: employeeId,
     month,
     year
   });
-  // console.log({ employeeSchedule}, "employeeSchedule");
-  if (!employeeSchedule) {
-    // Fall back to calendar day if no schedule exists
+  
+  if (employeeSchedule) {
+    // Check each day in the schedule to find which shift this log belongs to
+    for (const daySchedule of employeeSchedule.schedules) {
+      // Skip days off
+      if (daySchedule.isDayOff) continue;
+      
+      const shiftStartTime = moment(daySchedule.start);
+      const shiftEndTime = moment(daySchedule.end);
+      
+      // Early window for this shift
+      const earlyWindow = shiftStartTime
+        .clone()
+        .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS, "hours");
+      
+      // Late window for this shift
+      const lateWindow = shiftEndTime
+        .clone()
+        .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS, "hours");
+      
+      // If the log falls within this shift's window
+      if (logTime.isBetween(earlyWindow, lateWindow, null, "[]")) {
+        console.log(`Log matches shift on ${moment(daySchedule.date).format('YYYY-MM-DD')}`);
+        return moment(daySchedule.date).startOf("day");
+      }
+    }
+  }
+  
+  // If no match found in current month, check adjacent months for edge cases
+  // This handles logs that belong to shifts crossing month boundaries
+  
+  // Check previous month for logs at the beginning of the month
+  // Always check previous month for logs on the 1st day or within the early check-in window
+  if (logTime.date() <= CONFIG.EARLY_CHECK_IN_WINDOW_HOURS || logTime.date() === 1) {
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    
+    console.log(`Checking previous month ${prevMonth}/${prevYear} for log near month boundary`);
+    
+    const prevMonthSchedule = await EmployeeSchedule.findOne({
+      employee_id: employeeId,
+      month: prevMonth,
+      year: prevYear
+    });
+    
+    if (prevMonthSchedule) {
+      // Check only the last few days of the previous month
+      const daysInPrevMonth = moment(`${prevYear}-${prevMonth}-01`).daysInMonth();
+      const lastDaysSchedules = prevMonthSchedule.schedules.filter(s => 
+        moment(s.date).date() >= daysInPrevMonth - 2  // Check last 2 days of previous month
+      );
+      
+      for (const daySchedule of lastDaysSchedules) {
+        if (daySchedule.isDayOff) continue;
+        
+        const shiftEndTime = moment(daySchedule.end);
+        const lateWindow = shiftEndTime
+          .clone()
+          .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS, "hours");
+        
+        // If log is within the late window of a shift from the previous month
+        if (logTime.isBetween(shiftEndTime, lateWindow, null, "[]")) {
+          console.log(`Log matches shift from previous month on ${moment(daySchedule.date).format('YYYY-MM-DD')}`);
+          return moment(daySchedule.date).startOf("day");
+        }
+      }
+    }
+  }
+  
+  // Check next month for logs at the end of the month
+  // Always check next month for logs on the last day or within the late check-out window
+  const isLastDayOfMonth = logTime.date() === moment(logTime).daysInMonth();
+  if (logTime.date() >= moment(logTime).daysInMonth() - 1 || isLastDayOfMonth) {
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    
+    console.log(`Checking next month ${nextMonth}/${nextYear} for log near month boundary`);
+    
+    const nextMonthSchedule = await EmployeeSchedule.findOne({
+      employee_id: employeeId,
+      month: nextMonth,
+      year: nextYear
+    });
+    
+    if (nextMonthSchedule) {
+      // Check only the first few days of the next month
+      const firstDaysSchedules = nextMonthSchedule.schedules.filter(s => 
+        moment(s.date).date() <= 2
+      );
+      
+      for (const daySchedule of firstDaysSchedules) {
+        if (daySchedule.isDayOff) continue;
+        
+        const shiftStartTime = moment(daySchedule.start);
+        const earlyWindow = shiftStartTime
+          .clone()
+          .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS, "hours");
+        
+        // If log is within the early window of a shift from the next month
+        if (logTime.isBetween(earlyWindow, shiftStartTime, null, "[]")) {
+          console.log(`Log matches shift from next month on ${moment(daySchedule.date).format('YYYY-MM-DD')}`);
+          return moment(daySchedule.date).startOf("day");
+        }
+      }
+    }
+  }
+  
+  // If we're on the first or last day of the month and no match was found in adjacent months,
+  // make sure we use the current day's date (don't skip these days)
+  if (logTime.date() === 1 || logTime.date() === moment(logTime).daysInMonth()) {
+    console.log(`Using current date for log on month boundary: ${logTime.format('YYYY-MM-DD')}`);
     return logTime.clone().startOf("day");
   }
   
-  // Check each day in the schedule to find which shift this log belongs to
-  for (const daySchedule of employeeSchedule.schedules) {
-    // Skip days off
-    if (daySchedule.isDayOff) continue;
-    
-    const shiftStartTime = moment(daySchedule.start);
-    const shiftEndTime = moment(daySchedule.end);
-    // console.log({ shiftStartTime, shiftEndTime}, "shiftStartTime and shiftEndTime");
-    // Early window for this shift
-    const earlyWindow = shiftStartTime
-      .clone()
-      .subtract(CONFIG.EARLY_CHECK_IN_WINDOW_HOURS, "hours");
-    // console.log({ earlyWindow}, "earlyWindow");
-    // Late window for this shift
-    const lateWindow = shiftEndTime
-      .clone()
-      .add(CONFIG.LATE_CHECK_OUT_WINDOW_HOURS, "hours");
-    // console.log({ lateWindow}, "lateWindow");
-    // If the log falls within this shift's window
-    if (logTime.isBetween(earlyWindow, lateWindow, null, "[]")) {
-      // console.log("logTime is between earlyWindow and lateWindow");
-      return moment(daySchedule.date).startOf("day");
-    }
-  }
-  // console.log("logTime is not between earlyWindow and lateWindow");
-  // console.log(logTime.clone().startOf("day"), "logTime.clone().startOf('day')");
   // Default fallback - use the timestamp's date
+  console.log(`No matching shift found, using log date: ${logTime.format('YYYY-MM-DD')}`);
   return logTime.clone().startOf("day");
 };
 
@@ -1042,9 +1349,168 @@ const calculateOvertimeDetails = (firstEntry, lastExit, shiftStartTime, shiftEnd
   return result;
 };
 
+/**
+ * Verify and create missing attendance records for a specific month
+ * @param {Date} startDate - First day of the month
+ * @param {Date} endDate - Last day of the month
+ * @param {Array} employeeIds - Optional array of employee IDs to process
+ * @returns {Object} - Processing results (created records count)
+ */
+const verifyMonthAttendance = async (startDate, endDate, employeeIds = null) => {
+  try {
+    console.log(`Verifying attendance records for period: ${moment(startDate).format('YYYY-MM-DD')} to ${moment(endDate).format('YYYY-MM-DD')}`);
+    
+    // Get all employees that should be processed
+    const employeeQuery = employeeIds && employeeIds.length > 0
+      ? { _id: { $in: employeeIds } }
+      : {};
+    
+    const employees = await Employee.find(employeeQuery).lean();
+    console.log(`Verifying attendance for ${employees.length} employees`);
+    
+    const monthNum = moment(startDate).month() + 1;
+    const yearNum = moment(startDate).year();
+    const daysInMonth = moment(startDate).daysInMonth();
+    
+    let recordsCreated = 0;
+    let absentsCreated = 0;
+    let dayOffCreated = 0;
+    
+    // Process each employee
+    for (const employee of employees) {
+      console.log(`Verifying attendance records for employee ${employee._id}`);
+      
+      // Get all attendance records for this employee in this period
+      const attendanceRecords = await DailyAttendance.find({
+        employeeId: employee._id,
+        date: {
+          $gte: moment(startDate).startOf('day').toDate(),
+          $lte: moment(endDate).endOf('day').toDate()
+        }
+      }).sort({ date: 1 });
+      
+      // Group by date to check for missing days
+      const recordedDates = attendanceRecords.map(record => 
+        moment(record.date).format('YYYY-MM-DD')
+      );
+      
+      console.log(`Found ${attendanceRecords.length} existing records for dates: ${recordedDates.join(', ')}`);
+      
+      // Get employee schedule for this month
+      const employeeSchedule = await EmployeeSchedule.findOne({
+        employee_id: employee._id,
+        month: monthNum,
+        year: yearNum
+      });
+      
+      if (!employeeSchedule) {
+        console.warn(`No schedule found for employee ${employee._id} for ${monthNum}/${yearNum}. Skipping verification.`);
+        continue;
+      }
+      
+      // Check each day of the month, with special attention to first and last days
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateToCheck = moment({ year: yearNum, month: monthNum - 1, day }).format('YYYY-MM-DD');
+        const isFirstDay = day === 1;
+        const isLastDay = day === daysInMonth;
+        
+        // Special logging for first and last days
+        if (isFirstDay || isLastDay) {
+          console.log(`Specifically checking ${isFirstDay ? 'FIRST' : 'LAST'} day of month: ${dateToCheck}`);
+        }
+        
+        if (!recordedDates.includes(dateToCheck)) {
+          console.log(`Missing attendance record for employee ${employee._id} on ${dateToCheck}`);
+          
+          // Find the specific day's schedule
+          const daySchedule = employeeSchedule.schedules.find(
+            s => moment(s.date).format('YYYY-MM-DD') === dateToCheck
+          );
+          
+          if (daySchedule) {
+            // If it's a work day, create an absent record
+            if (!daySchedule.isDayOff) {
+              const shiftStartTime = moment(daySchedule.start);
+              const shiftEndTime = moment(daySchedule.end);
+              const expectedWorkHours = daySchedule.actual_expected_minutes || 
+                (shiftEndTime.diff(shiftStartTime, 'minutes'));
+              
+              // Create absent record
+              const newRecord = new DailyAttendance({
+                employeeId: employee._id,
+                date: moment(dateToCheck).toDate(),
+                status: "Absent",
+                firstEntry: null,
+                lastExit: null,
+                workDuration: 0,
+                lateArrival: 0,
+                earlyDeparture: 0,
+                logs: [],
+                remarks: `Absent (created during verification${isFirstDay ? ' - first day of month' : isLastDay ? ' - last day of month' : ''})`,
+                expectedWorkHours,
+                checkinStatus: "Absent",
+                checkoutStatus: "Absent",
+                expectedCheckinTime: shiftStartTime.toDate(),
+                expectedCheckoutTime: shiftEndTime.toDate(),
+                isOverTime: false,
+                approvedOverTime: false
+              });
+              
+              await newRecord.save();
+              console.log(`Created absent record for ${employee._id} on ${dateToCheck}`);
+              recordsCreated++;
+              absentsCreated++;
+            } else {
+              // It's a day off, create a weekend/holiday record
+              const newRecord = new DailyAttendance({
+                employeeId: employee._id,
+                date: moment(dateToCheck).toDate(),
+                status: "Weekend",
+                firstEntry: null,
+                lastExit: null,
+                workDuration: 0,
+                lateArrival: 0,
+                earlyDeparture: 0,
+                logs: [],
+                remarks: `Non-working day (created during verification${isFirstDay ? ' - first day of month' : isLastDay ? ' - last day of month' : ''})`,
+                expectedWorkHours: 0,
+                checkinStatus: "Day Off",
+                checkoutStatus: "Day Off",
+                expectedCheckinTime: null,
+                expectedCheckoutTime: null,
+                isOverTime: false,
+                approvedOverTime: false
+              });
+              
+              await newRecord.save();
+              console.log(`Created day off record for ${employee._id} on ${dateToCheck}`);
+              recordsCreated++;
+              dayOffCreated++;
+            }
+          } else {
+            console.warn(`No day schedule found for ${dateToCheck}`);
+          }
+        }
+      }
+    }
+    
+    console.log(`Verification complete. Created ${recordsCreated} records (${absentsCreated} absents, ${dayOffCreated} day offs)`);
+    
+    return {
+      recordsCreated,
+      absentsCreated,
+      dayOffCreated
+    };
+  } catch (error) {
+    console.error("Error in verifyMonthAttendance:", error);
+    throw error;
+  }
+};
+
 module.exports = {
   processAttendanceLogs,
   processHourlyAttendanceLogs,
   generateRemarks,
-  calculateOvertimeDetails
+  calculateOvertimeDetails,
+  verifyMonthAttendance
 };
