@@ -94,6 +94,10 @@ app.use("/api/v1/employeeSchedule", require("./routes/employeeScheduleRoutes"));
 app.use("/api/v1/payroll", require("./routes/payRollRoutes"));
 app.use("/api/v1/auth", require("./routes/authRoutes"));
 app.use("/api/v1/otherDeduction", require("./routes/otherDeductionsRoutes"));
+app.use("/api/v1/fineDeduction", require("./routes/fineDeductionsRoutes"));
+app.use("/api/v1/arrears", require("./routes/arrearsRoutes"));
+app.use("/api/v1/otherIncentives", require("./routes/otherIncentivesRoutes"));
+
 // Add a health check route for Vercel
 app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok", environment: isServerless ? "serverless" : "server" });
