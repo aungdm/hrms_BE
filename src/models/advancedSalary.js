@@ -25,31 +25,6 @@ const AdvancedSalarySchema = new mongoose.Schema({
   approvalDate: { 
     type: Date
   },
-  installments: [{
-    amount: Number,
-    dueDate: Date,
-    status: {
-      type: String,
-      enum: ["Pending", "Paid"],
-      default: "Pending"
-    }
-  }],
-  totalInstallments: {
-    type: Number,
-    required: true
-  },
-  leftInstallments: {
-    type: Number,
-    default: function() {
-      return this.totalInstallments;
-    }
-  },
-  leftAmount: {
-    type: Number,
-    default: function() {
-      return this.approvedAmount;
-    }
-  },
   description: { 
     type: String, 
     default: "" 

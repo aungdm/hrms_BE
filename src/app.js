@@ -98,6 +98,7 @@ app.use("/api/v1/fineDeduction", require("./routes/fineDeductionsRoutes"));
 app.use("/api/v1/arrears", require("./routes/arrearsRoutes"));
 app.use("/api/v1/otherIncentives", require("./routes/otherIncentivesRoutes"));
 app.use("/api/v1/loan", require("./routes/loanRoutes"));
+app.use("/api/v1/advanced-salary", require("./routes/advancedSalaryRoutes"));
   
 // Add a health check route for Vercel
 app.get("/api/health", (req, res) => {

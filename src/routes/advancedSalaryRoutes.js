@@ -1,24 +1,22 @@
 const express = require("express");
 const router = express.Router();
 const {
-  createLoan,
-  updateLoan,
-  getLoans,
-  getLoan,
-  deleteLoan,
-  updateLoanStatus,
-  deleteMultipleLoans,
-  payLoanInstallment
+  createAdvancedSalary,
+  updateAdvancedSalary,
+  getAdvancedSalaries,
+  getAdvancedSalary,
+  deleteAdvancedSalary,
+  updateAdvancedSalaryStatus,
+  deleteMultipleAdvancedSalaries
 } = require("../controllers/advancedSalaryController");
 
-// Routes for loans
-router.post("/", createLoan);
-router.put("/:id", updateLoan);
-router.get("/", getLoans);
-router.get("/:id", getLoan);
-router.delete("/:id", deleteLoan);
-router.patch("/:id/status", updateLoanStatus);
-router.post("/delete-multiple", deleteMultipleLoans);
-router.patch("/:id/pay-installment", payLoanInstallment);
+// Routes for advanced salaries
+router.post("/", createAdvancedSalary);
+router.put("/:id", updateAdvancedSalary);
+router.get("/", getAdvancedSalaries);
+router.get("/:id", getAdvancedSalary);
+router.delete("/:id", deleteAdvancedSalary);
+router.patch("/:id/status", updateAdvancedSalaryStatus);
+router.post("/delete-multiple", deleteMultipleAdvancedSalaries);
 
 module.exports = router; 
