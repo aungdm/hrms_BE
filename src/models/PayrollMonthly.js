@@ -39,6 +39,11 @@ const PayrollMonthlySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    otherDeductionDetails: {
+      type: Array,
+      default: [],
+      comment: 'Details of other deductions subtracted from this payroll'
+    },
     otherIncentives: {
       type: Number,
       default: 0,
@@ -119,6 +124,7 @@ PayrollMonthlySchema.methods.generatePayslip = function() {
       absentDays: this.absentDays,
       absentDeductions: this.absentDeductions,
       otherDeductions: this.otherDeductions,
+      otherDeductionDetails: this.otherDeductionDetails || [],
       otherIncentives: this.otherIncentives,
       incentiveDetails: this.incentiveDetails || [],
       arrears: this.arrears,

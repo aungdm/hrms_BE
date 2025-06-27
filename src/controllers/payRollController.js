@@ -194,8 +194,8 @@ exports.generateHourlyPayroll = async (req, res) => {
       }
       console.log({advancedSalaryRecords}, {totalAdvancedSalary}, "hourly advancedSalaryRecords");
       
-      // Adjust net salary with incentives, arrears, fine deductions, and advanced salary
-      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions - totalAdvancedSalary;
+      // Adjust net salary with incentives, arrears, fine deductions, other deductions, and advanced salary
+      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions - totalOtherDeductions - totalAdvancedSalary;
       console.log({finalNetSalary} , "hourly finalNetSalary")
 
       // Create payroll record
@@ -211,6 +211,7 @@ exports.generateHourlyPayroll = async (req, res) => {
         payableHours,
         lateFines,
         otherDeductions,
+        otherDeductionDetails,
         overtimePay,
         otherIncentives: totalIncentives,
         incentiveDetails,
@@ -349,6 +350,9 @@ exports.getHourlyPayrollById = async (req, res) => {
     if (!payrollData.fineDeductions) payrollData.fineDeductions = 0;
     if (!payrollData.fineDeductionDetails) payrollData.fineDeductionDetails = [];
     
+    // Ensure other deduction details are included
+    if (!payrollData.otherDeductionDetails) payrollData.otherDeductionDetails = [];
+    
     return res.status(200).json({
       success: true,
       data: payrollData
@@ -476,6 +480,7 @@ exports.getHourlyPayslip = async (req, res) => {
         payableHours: payroll.payableHours,
         lateFines: payroll.lateFines,
         otherDeductions: payroll.otherDeductions,
+        otherDeductionDetails: payroll.otherDeductionDetails || [],
         overtimePay: payroll.overtimePay,
         otherIncentives: payroll.otherIncentives || 0,
         incentiveDetails: payroll.incentiveDetails || [],
@@ -579,6 +584,14 @@ exports.generateMonthlyPayroll = async (req, res) => {
       });
       console.log({fineDeductionRecords}, "monthly fineDeductionRecords")
       
+      // Get other deductions for this employee within date range that are not processed yet
+      const otherDeductionRecords = await OtherDeduction.find({
+        employeeId: employee._id,
+        deductionDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        processed: false,
+      });
+      console.log({otherDeductionRecords}, "monthly otherDeductionRecords")
+      
       // Get advanced salary for this employee that are approved and not processed yet
       const advancedSalaryRecords = await AdvancedSalary.find({
         employeeId: employee._id,
@@ -643,6 +656,21 @@ exports.generateMonthlyPayroll = async (req, res) => {
         });
       }
       
+      // Calculate total other deductions
+      let totalOtherDeductions = 0;
+      const otherDeductionDetails = [];
+      
+      for (const otherDeduction of otherDeductionRecords) {
+        totalOtherDeductions += otherDeduction.amount;
+        otherDeductionDetails.push({
+          id: otherDeduction._id,
+          type: otherDeduction.deductionType,
+          amount: otherDeduction.amount,
+          date: otherDeduction.deductionDate,
+          description: otherDeduction.description
+        });
+      }
+      
       // Calculate total advanced salary deductions
       let totalAdvancedSalary = 0;
       const advancedSalaryDetails = [];
@@ -659,8 +687,8 @@ exports.generateMonthlyPayroll = async (req, res) => {
       }
       console.log({advancedSalaryRecords}, {totalAdvancedSalary}, "monthly advancedSalaryRecords");
       
-      // Adjust net salary with incentives, arrears, fine deductions, and advanced salary
-      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions - totalAdvancedSalary;
+      // Adjust net salary with incentives, arrears, fine deductions, other deductions, and advanced salary
+      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions - totalOtherDeductions - totalAdvancedSalary;
       
       // Create payroll record
       const payroll = await PayrollMonthly.create({
@@ -679,6 +707,8 @@ exports.generateMonthlyPayroll = async (req, res) => {
         arrearsDetails,
         fineDeductions: totalFineDeductions,
         fineDeductionDetails,
+        otherDeductions: totalOtherDeductions,
+        otherDeductionDetails,
         advancedSalary: totalAdvancedSalary,
         advancedSalaryDetails,
         netSalary: finalNetSalary,
@@ -706,6 +736,14 @@ exports.generateMonthlyPayroll = async (req, res) => {
       if (fineDeductionRecords.length > 0) {
         await FineDeduction.updateMany(
           { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
+          { processed: true }
+        );
+      }
+      
+      // Mark all processed other deductions as processed
+      if (otherDeductionRecords.length > 0) {
+        await OtherDeduction.updateMany(
+          { _id: { $in: otherDeductionRecords.map(other => other._id) } },
           { processed: true }
         );
       }
@@ -802,6 +840,9 @@ exports.getMonthlyPayrollById = async (req, res) => {
     // Ensure fine deduction details are included
     if (!payrollData.fineDeductions) payrollData.fineDeductions = 0;
     if (!payrollData.fineDeductionDetails) payrollData.fineDeductionDetails = [];
+    
+    // Ensure other deduction details are included
+    if (!payrollData.otherDeductionDetails) payrollData.otherDeductionDetails = [];
     
     return res.status(200).json({
       success: true,
@@ -926,6 +967,7 @@ exports.getMonthlyPayslip = async (req, res) => {
         grossSalary: payroll.grossSalary,
         absentDeductions: payroll.absentDeductions,
         otherDeductions: payroll.otherDeductions,
+        otherDeductionDetails: payroll.otherDeductionDetails || [],
         otherIncentives: payroll.otherIncentives || 0,
         incentiveDetails: payroll.incentiveDetails || [],
         arrears: payroll.arrears || 0,
@@ -977,6 +1019,17 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
   
   // Check if employee is leadership role for different fine structure
   const isLeadership = ['Team Lead', 'Supervisor', 'Project Manager'].includes(employee.designation);
+  
+  // Count late arrivals to exempt the first three
+  let lateArrivalCount = 0;
+  
+  // First pass: Count the number of late arrivals
+  attendanceRecords.forEach(record => {
+    if (record.lateArrival && record.lateArrival > 0 && 
+        (record.status === 'Present' || record.status === 'Late')) {
+      lateArrivalCount++;
+    }
+  });
   
   // Process attendance records for payroll calculations
   attendanceRecords.forEach(record => {
@@ -1079,33 +1132,45 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     if (record.lateArrival && (status === 'Present' || status === 'Late')) {
       const lateMinutes = record.lateArrival;
       
-      if (isLeadership) {
-        // Leadership fine structure
-        if (lateMinutes > 120) {
-          dailyLateFine = 4000;
-          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹4000 (Leadership >120min)`;
-        } else if (lateMinutes > 20) {
-          dailyLateFine = 2000;
-          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹2000 (Leadership >20min)`;
-        } else if (lateMinutes > 1) {
-          dailyLateFine = 1000;
-          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹1000 (Leadership >1min)`;
-        }
-      } else {
-        // Non-leadership fine structure
-        if (lateMinutes > 120) {
-          dailyLateFine = 2000;
-          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹2000 (Regular >120min)`;
-        } else if (lateMinutes > 20) {
-          dailyLateFine = 1000;
-          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹1000 (Regular >20min)`;
-        } else if (lateMinutes > 1) {
-          dailyLateFine = 500;
-          dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹500 (Regular >1min)`;
-        }
-      }
+      // Get the position of this late arrival in the overall count
+      const currentLatePosition = attendanceRecords
+        .filter(r => r.date <= record.date && r.lateArrival > 0 && 
+                (r.status === 'Present' || r.status === 'Late'))
+        .length;
       
-      lateFines += dailyLateFine;
+      // Only apply fine if this is the 4th or later late arrival
+      if (currentLatePosition > 3) {
+        if (isLeadership) {
+          // Leadership fine structure
+          if (lateMinutes > 120) {
+            dailyLateFine = 4000;
+            dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹4000 (Leadership >120min)`;
+          } else if (lateMinutes > 20) {
+            dailyLateFine = 2000;
+            dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹2000 (Leadership >20min)`;
+          } else if (lateMinutes > 1) {
+            dailyLateFine = 1000;
+            dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹1000 (Leadership >1min)`;
+          }
+        } else {
+          // Non-leadership fine structure
+          if (lateMinutes > 120) {
+            dailyLateFine = 2000;
+            dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹2000 (Regular >120min)`;
+          } else if (lateMinutes > 20) {
+            dailyLateFine = 1000;
+            dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹1000 (Regular >20min)`;
+          } else if (lateMinutes > 1) {
+            dailyLateFine = 500;
+            dailyCalc.notes += ` | Late: ${lateMinutes}min → Fine: ₹500 (Regular >1min)`;
+          }
+        }
+        
+        lateFines += dailyLateFine;
+      } else {
+        // First three late arrivals are not fined
+        dailyCalc.notes += ` | Late: ${lateMinutes}min (No fine - within first 3 late arrivals)`;
+      }
     } else if (record.lateArrival && record.lateArrival > 0) {
       dailyCalc.notes += ` | Late: ${record.lateArrival}min (No fine - non-working status)`;
     }
@@ -1459,6 +1524,62 @@ exports.getUnprocessedAdvancedSalaries = async (req, res) => {
   }
 };
 
+// Get unprocessed other deductions for an employee
+exports.getUnprocessedOtherDeductions = async (req, res) => {
+  try {
+    const { employeeId, startDate, endDate } = req.query;
+    console.log({employeeId, startDate, endDate}, "getUnprocessedOtherDeductions")
+    
+    if (!employeeId) {
+      return res.status(400).json({ success: false, message: 'Employee ID is required' });
+    }
+    
+    // Build query
+    const query = {
+      employeeId,
+      processed: false
+    };
+    
+    // Add date range if provided
+    if (startDate || endDate) {
+      query.deductionDate = {};
+      if (startDate) query.deductionDate.$gte = new Date(startDate);
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        query.deductionDate.$lte = endDateObj;
+      }
+    }
+    
+    // Find other deductions
+    const otherDeductions = await OtherDeduction.find(query);
+    console.log({otherDeductions})
+    
+    // Calculate total for approved other deductions
+    const approvedOtherDeductions = otherDeductions.filter(deduction => deduction.status === 'Approved');
+    const totalAmount = approvedOtherDeductions.reduce((sum, deduction) => sum + deduction.amount, 0);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Unprocessed other deductions fetched successfully',
+      data: {
+        otherDeductions,
+        approvedOtherDeductions,
+        totalAmount,
+        count: otherDeductions.length,
+        approvedCount: approvedOtherDeductions.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching unprocessed other deductions:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch unprocessed other deductions',
+      error: error.message
+    });
+  }
+};
+
 // Combined function to list all payrolls (both hourly and monthly)
 exports.listAllPayrolls = async (req, res) => {
   try {
@@ -1585,6 +1706,7 @@ module.exports = {
   getUnprocessedIncentives: exports.getUnprocessedIncentives,
   getUnprocessedArrears: exports.getUnprocessedArrears,
   getUnprocessedFineDeductions: exports.getUnprocessedFineDeductions,
-  getUnprocessedAdvancedSalaries: exports.getUnprocessedAdvancedSalaries
+  getUnprocessedAdvancedSalaries: exports.getUnprocessedAdvancedSalaries,
+  getUnprocessedOtherDeductions: exports.getUnprocessedOtherDeductions
 };
 

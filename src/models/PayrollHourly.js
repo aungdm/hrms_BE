@@ -48,6 +48,11 @@ const PayrollHourlySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    otherDeductionDetails: {
+      type: Array,
+      default: [],
+      comment: 'Details of other deductions subtracted from this payroll'
+    },
     overtimePay: {
       type: Number,
       default: 0,
@@ -134,6 +139,7 @@ PayrollHourlySchema.methods.generatePayslip = function() {
       payableHours: this.payableHours,
       lateFines: this.lateFines,
       otherDeductions: this.otherDeductions,
+      otherDeductionDetails: this.otherDeductionDetails || [],
       overtimePay: this.overtimePay,
       otherIncentives: this.otherIncentives,
       incentiveDetails: this.incentiveDetails || [],

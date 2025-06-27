@@ -16,6 +16,9 @@ router.get("/unprocessed-arrears", payrollController.getUnprocessedArrears);
 // Get unprocessed fine deductions for an employee
 router.get("/unprocessed-fine-deductions", payrollController.getUnprocessedFineDeductions);
 
+// Get unprocessed other deductions for an employee
+router.get("/unprocessed-other-deductions", payrollController.getUnprocessedOtherDeductions);
+
 // Get unprocessed advanced salaries for an employee
 router.get("/unprocessed-advanced-salaries", payrollController.getUnprocessedAdvancedSalaries);
 
