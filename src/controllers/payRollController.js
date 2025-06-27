@@ -8,6 +8,7 @@ const Employee = require('../models/employee');
 const OtherDeduction = require('../models/otherDeduction');
 const OtherIncentive = require('../models/otherIncentives');
 const Arrears = require('../models/arrears');
+const FineDeduction = require('../models/fineDeduction');
 
 // ---------- Hourly Employee Payroll Controllers ----------
 
@@ -67,6 +68,7 @@ exports.generateHourlyPayroll = async (req, res) => {
         // status: "Approved"
       });
       console.log({incentiveRecords} , "hourly incentiveRecords")
+      
       // Get arrears for this employee within date range that are not processed yet
       const arrearsRecords = await Arrears.find({
         employeeId: employee._id,
@@ -75,6 +77,16 @@ exports.generateHourlyPayroll = async (req, res) => {
         // status: "Approved"
       });
       console.log({arrearsRecords} , "hourly arrearsRecords")
+      
+      // Get fine deductions for this employee within date range that are not processed yet
+      const fineDeductionRecords = await FineDeduction.find({
+        employeeId: employee._id,
+        deductionDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        processed: false,
+        // status: "Approved"
+      });
+      console.log({fineDeductionRecords} , "hourly fineDeductionRecords")
+      
       // Calculate salary based on hourly rules
       const {
         grossSalary,
@@ -118,9 +130,26 @@ exports.generateHourlyPayroll = async (req, res) => {
         });
       }
       
-      // Adjust net salary with incentives and arrears
-      const finalNetSalary = netSalary + totalIncentives + totalArrears;
+      // Calculate total fine deductions
+      let totalFineDeductions = 0;
+      const fineDeductionDetails = [];
       
+      for (const fineDeduction of fineDeductionRecords) {
+        totalFineDeductions += fineDeduction.amount;
+        fineDeductionDetails.push({
+          id: fineDeduction._id,
+          type: fineDeduction.deductionType,
+          amount: fineDeduction.amount,
+          date: fineDeduction.deductionDate,
+          description: fineDeduction.description
+        });
+      }
+      console.log({fineDeductionRecords} ,{totalFineDeductions} , "hourly fineDeductionRecords")
+      
+      // Adjust net salary with incentives, arrears, and fine deductions
+      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions;
+      console.log({finalNetSalary} , "hourly finalNetSalary")
+
       // Create payroll record
       const payroll = await PayrollHourly.create({
         employeeId: employee._id,
@@ -139,6 +168,8 @@ exports.generateHourlyPayroll = async (req, res) => {
         incentiveDetails,
         arrears: totalArrears,
         arrearsDetails,
+        fineDeductions: totalFineDeductions,
+        fineDeductionDetails,
         netSalary: finalNetSalary,
         dailyCalculations,
         status: 'Generated',
@@ -156,6 +187,14 @@ exports.generateHourlyPayroll = async (req, res) => {
       if (arrearsRecords.length > 0) {
         await Arrears.updateMany(
           { _id: { $in: arrearsRecords.map(arr => arr._id) } },
+          { processed: true }
+        );
+      }
+      
+      // Mark all processed fine deductions as processed
+      if (fineDeductionRecords.length > 0) {
+        await FineDeduction.updateMany(
+          { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
           { processed: true }
         );
       }
@@ -240,6 +279,10 @@ exports.getHourlyPayrollById = async (req, res) => {
     // Ensure arrears details are included
     if (!payrollData.arrears) payrollData.arrears = 0;
     if (!payrollData.arrearsDetails) payrollData.arrearsDetails = [];
+    
+    // Ensure fine deduction details are included
+    if (!payrollData.fineDeductions) payrollData.fineDeductions = 0;
+    if (!payrollData.fineDeductionDetails) payrollData.fineDeductionDetails = [];
     
     return res.status(200).json({
       success: true,
@@ -373,6 +416,8 @@ exports.getHourlyPayslip = async (req, res) => {
         incentiveDetails: payroll.incentiveDetails || [],
         arrears: payroll.arrears || 0,
         arrearsDetails: payroll.arrearsDetails || [],
+        fineDeductions: payroll.fineDeductions || 0,
+        fineDeductionDetails: payroll.fineDeductionDetails || [],
         netSalary: payroll.netSalary
       },
       dailyCalculations: payroll.dailyCalculations || [],
@@ -459,6 +504,15 @@ exports.generateMonthlyPayroll = async (req, res) => {
         processed: false,
       });
       console.log({arrearsRecords})
+      
+      // Get fine deductions for this employee within date range that are not processed yet
+      const fineDeductionRecords = await FineDeduction.find({
+        employeeId: employee._id,
+        deductionDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        processed: false,
+      });
+      console.log({fineDeductionRecords}, "monthly fineDeductionRecords")
+      
       // Calculate salary based on monthly rules
       const {
         grossSalary,
@@ -499,8 +553,23 @@ exports.generateMonthlyPayroll = async (req, res) => {
         });
       }
       
-      // Adjust net salary with incentives and arrears
-      const finalNetSalary = netSalary + totalIncentives + totalArrears;
+      // Calculate total fine deductions
+      let totalFineDeductions = 0;
+      const fineDeductionDetails = [];
+      
+      for (const fineDeduction of fineDeductionRecords) {
+        totalFineDeductions += fineDeduction.amount;
+        fineDeductionDetails.push({
+          id: fineDeduction._id,
+          type: fineDeduction.deductionType,
+          amount: fineDeduction.amount,
+          date: fineDeduction.deductionDate,
+          description: fineDeduction.description
+        });
+      }
+      
+      // Adjust net salary with incentives, arrears, and fine deductions
+      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions;
       
       // Create payroll record
       const payroll = await PayrollMonthly.create({
@@ -517,6 +586,8 @@ exports.generateMonthlyPayroll = async (req, res) => {
         incentiveDetails,
         arrears: totalArrears,
         arrearsDetails,
+        fineDeductions: totalFineDeductions,
+        fineDeductionDetails,
         netSalary: finalNetSalary,
         dailyCalculations,
         status: 'Generated',
@@ -534,6 +605,14 @@ exports.generateMonthlyPayroll = async (req, res) => {
       if (arrearsRecords.length > 0) {
         await Arrears.updateMany(
           { _id: { $in: arrearsRecords.map(arr => arr._id) } },
+          { processed: true }
+        );
+      }
+      
+      // Mark all processed fine deductions as processed
+      if (fineDeductionRecords.length > 0) {
+        await FineDeduction.updateMany(
+          { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
           { processed: true }
         );
       }
@@ -618,6 +697,10 @@ exports.getMonthlyPayrollById = async (req, res) => {
     // Ensure arrears details are included
     if (!payrollData.arrears) payrollData.arrears = 0;
     if (!payrollData.arrearsDetails) payrollData.arrearsDetails = [];
+    
+    // Ensure fine deduction details are included
+    if (!payrollData.fineDeductions) payrollData.fineDeductions = 0;
+    if (!payrollData.fineDeductionDetails) payrollData.fineDeductionDetails = [];
     
     return res.status(200).json({
       success: true,
@@ -746,6 +829,8 @@ exports.getMonthlyPayslip = async (req, res) => {
         incentiveDetails: payroll.incentiveDetails || [],
         arrears: payroll.arrears || 0,
         arrearsDetails: payroll.arrearsDetails || [],
+        fineDeductions: payroll.fineDeductions || 0,
+        fineDeductionDetails: payroll.fineDeductionDetails || [],
         netSalary: payroll.netSalary
       },
       generatedDate: payroll.createdAt,
@@ -1158,6 +1243,62 @@ exports.getUnprocessedArrears = async (req, res) => {
   }
 };
 
+// Get unprocessed fine deductions for an employee
+exports.getUnprocessedFineDeductions = async (req, res) => {
+  try {
+    const { employeeId, startDate, endDate } = req.query;
+    console.log({employeeId, startDate, endDate}, "getUnprocessedFineDeductions")
+    
+    if (!employeeId) {
+      return res.status(400).json({ success: false, message: 'Employee ID is required' });
+    }
+    
+    // Build query
+    const query = {
+      employeeId,
+      processed: false
+    };
+    
+    // Add date range if provided
+    if (startDate || endDate) {
+      query.deductionDate = {};
+      if (startDate) query.deductionDate.$gte = new Date(startDate);
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        query.deductionDate.$lte = endDateObj;
+      }
+    }
+    
+    // Find fine deductions
+    const fineDeductions = await FineDeduction.find(query);
+    console.log({fineDeductions})
+    
+    // Calculate total for approved fine deductions only
+    const approvedFineDeductions = fineDeductions.filter(fine => fine.status === 'Approved');
+    const totalAmount = approvedFineDeductions.reduce((sum, fine) => sum + fine.amount, 0);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Unprocessed fine deductions fetched successfully',
+      data: {
+        fineDeductions,
+        approvedFineDeductions,
+        totalAmount,
+        count: fineDeductions.length,
+        approvedCount: approvedFineDeductions.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching unprocessed fine deductions:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch unprocessed fine deductions',
+      error: error.message
+    });
+  }
+};
+
 // Combined function to list all payrolls (both hourly and monthly)
 exports.listAllPayrolls = async (req, res) => {
   try {
@@ -1282,6 +1423,7 @@ module.exports = {
   
   listAllPayrolls: exports.listAllPayrolls,
   getUnprocessedIncentives: exports.getUnprocessedIncentives,
-  getUnprocessedArrears: exports.getUnprocessedArrears
+  getUnprocessedArrears: exports.getUnprocessedArrears,
+  getUnprocessedFineDeductions: exports.getUnprocessedFineDeductions
 };
 
