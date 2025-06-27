@@ -63,7 +63,8 @@ const updateIncentive = async (req, res) => {
       amount,
       incentiveDate,
       description,
-      status
+      status,
+      processed
     } = req.body;
 
     // Find the incentive
@@ -87,6 +88,7 @@ const updateIncentive = async (req, res) => {
     if (incentiveDate) incentive.incentiveDate = incentiveDate;
     if (description !== undefined) incentive.description = description;
     if (status) incentive.status = status;
+    if (processed !== undefined) incentive.processed = processed;
 
     await incentive.save();
 

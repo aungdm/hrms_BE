@@ -10,6 +10,9 @@ router.get("/", payrollController.listAllPayrolls);
 // Get unprocessed incentives for an employee
 router.get("/unprocessed-incentives", payrollController.getUnprocessedIncentives);
 
+// Get unprocessed arrears for an employee
+router.get("/unprocessed-arrears", payrollController.getUnprocessedArrears);
+
 // Hourly Employee Payroll Routes
 // Generate payroll for hourly employees within date range
 router.post("/hourly/generate", payrollController.generateHourlyPayroll);

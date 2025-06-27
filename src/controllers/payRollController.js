@@ -7,6 +7,7 @@ const DailyAttendance = require('../models/dailyAttendance');
 const Employee = require('../models/employee');
 const OtherDeduction = require('../models/otherDeduction');
 const OtherIncentive = require('../models/otherIncentives');
+const Arrears = require('../models/arrears');
 
 // ---------- Hourly Employee Payroll Controllers ----------
 
@@ -62,9 +63,18 @@ exports.generateHourlyPayroll = async (req, res) => {
       const incentiveRecords = await OtherIncentive.find({
         employeeId: employee._id,
         incentiveDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
-        processed: false
+        processed: false,
+        // status: "Approved"
       });
-      
+      console.log({incentiveRecords} , "hourly incentiveRecords")
+      // Get arrears for this employee within date range that are not processed yet
+      const arrearsRecords = await Arrears.find({
+        employeeId: employee._id,
+        deductionDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        processed: false,
+        // status: "Approved"
+      });
+      console.log({arrearsRecords} , "hourly arrearsRecords")
       // Calculate salary based on hourly rules
       const {
         grossSalary,
@@ -93,8 +103,23 @@ exports.generateHourlyPayroll = async (req, res) => {
         });
       }
       
-      // Adjust net salary with incentives
-      const finalNetSalary = netSalary + totalIncentives;
+      // Calculate total arrears
+      let totalArrears = 0;
+      const arrearsDetails = [];
+      
+      for (const arrears of arrearsRecords) {
+        totalArrears += arrears.amount;
+        arrearsDetails.push({
+          id: arrears._id,
+          type: arrears.deductionType,
+          amount: arrears.amount,
+          date: arrears.deductionDate,
+          description: arrears.description
+        });
+      }
+      
+      // Adjust net salary with incentives and arrears
+      const finalNetSalary = netSalary + totalIncentives + totalArrears;
       
       // Create payroll record
       const payroll = await PayrollHourly.create({
@@ -112,6 +137,8 @@ exports.generateHourlyPayroll = async (req, res) => {
         overtimePay,
         otherIncentives: totalIncentives,
         incentiveDetails,
+        arrears: totalArrears,
+        arrearsDetails,
         netSalary: finalNetSalary,
         dailyCalculations,
         status: 'Generated',
@@ -121,6 +148,14 @@ exports.generateHourlyPayroll = async (req, res) => {
       if (incentiveRecords.length > 0) {
         await OtherIncentive.updateMany(
           { _id: { $in: incentiveRecords.map(inc => inc._id) } },
+          { processed: true }
+        );
+      }
+      
+      // Mark all processed arrears as processed
+      if (arrearsRecords.length > 0) {
+        await Arrears.updateMany(
+          { _id: { $in: arrearsRecords.map(arr => arr._id) } },
           { processed: true }
         );
       }
@@ -194,9 +229,21 @@ exports.getHourlyPayrollById = async (req, res) => {
       });
     }
     
+    // Add payroll type for frontend identification
+    const payrollData = payroll.toObject();
+    payrollData.payrollType = 'Hourly';
+    
+    // Ensure incentive details are included
+    if (!payrollData.otherIncentives) payrollData.otherIncentives = 0;
+    if (!payrollData.incentiveDetails) payrollData.incentiveDetails = [];
+    
+    // Ensure arrears details are included
+    if (!payrollData.arrears) payrollData.arrears = 0;
+    if (!payrollData.arrearsDetails) payrollData.arrearsDetails = [];
+    
     return res.status(200).json({
       success: true,
-      data: payroll
+      data: payrollData
     });
   } catch (error) {
     console.error('Error getting hourly payroll:', error);
@@ -322,6 +369,10 @@ exports.getHourlyPayslip = async (req, res) => {
         lateFines: payroll.lateFines,
         otherDeductions: payroll.otherDeductions,
         overtimePay: payroll.overtimePay,
+        otherIncentives: payroll.otherIncentives || 0,
+        incentiveDetails: payroll.incentiveDetails || [],
+        arrears: payroll.arrears || 0,
+        arrearsDetails: payroll.arrearsDetails || [],
         netSalary: payroll.netSalary
       },
       dailyCalculations: payroll.dailyCalculations || [],
@@ -397,9 +448,17 @@ exports.generateMonthlyPayroll = async (req, res) => {
         employeeId: employee._id,
         incentiveDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
         processed: false,
-        status: "Approved"
       });
-      
+      console.log({incentiveRecords})
+       
+
+      // Get arrears for this employee within date range that are not processed yet
+      const arrearsRecords = await Arrears.find({
+        employeeId: employee._id,
+        deductionDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        processed: false,
+      });
+      console.log({arrearsRecords})
       // Calculate salary based on monthly rules
       const {
         grossSalary,
@@ -425,8 +484,23 @@ exports.generateMonthlyPayroll = async (req, res) => {
         });
       }
       
-      // Adjust net salary with incentives
-      const finalNetSalary = netSalary + totalIncentives;
+      // Calculate total arrears
+      let totalArrears = 0;
+      const arrearsDetails = [];
+      
+      for (const arrears of arrearsRecords) {
+        totalArrears += arrears.amount;
+        arrearsDetails.push({
+          id: arrears._id,
+          type: arrears.deductionType,
+          amount: arrears.amount,
+          date: arrears.deductionDate,
+          description: arrears.description
+        });
+      }
+      
+      // Adjust net salary with incentives and arrears
+      const finalNetSalary = netSalary + totalIncentives + totalArrears;
       
       // Create payroll record
       const payroll = await PayrollMonthly.create({
@@ -441,6 +515,8 @@ exports.generateMonthlyPayroll = async (req, res) => {
         otherDeductions,
         otherIncentives: totalIncentives,
         incentiveDetails,
+        arrears: totalArrears,
+        arrearsDetails,
         netSalary: finalNetSalary,
         dailyCalculations,
         status: 'Generated',
@@ -450,6 +526,14 @@ exports.generateMonthlyPayroll = async (req, res) => {
       if (incentiveRecords.length > 0) {
         await OtherIncentive.updateMany(
           { _id: { $in: incentiveRecords.map(inc => inc._id) } },
+          { processed: true }
+        );
+      }
+      
+      // Mark all processed arrears as processed
+      if (arrearsRecords.length > 0) {
+        await Arrears.updateMany(
+          { _id: { $in: arrearsRecords.map(arr => arr._id) } },
           { processed: true }
         );
       }
@@ -523,9 +607,21 @@ exports.getMonthlyPayrollById = async (req, res) => {
       });
     }
     
+    // Add payroll type for frontend identification
+    const payrollData = payroll.toObject();
+    payrollData.payrollType = 'Monthly';
+    
+    // Ensure incentive details are included
+    if (!payrollData.otherIncentives) payrollData.otherIncentives = 0;
+    if (!payrollData.incentiveDetails) payrollData.incentiveDetails = [];
+    
+    // Ensure arrears details are included
+    if (!payrollData.arrears) payrollData.arrears = 0;
+    if (!payrollData.arrearsDetails) payrollData.arrearsDetails = [];
+    
     return res.status(200).json({
       success: true,
-      data: payroll
+      data: payrollData
     });
   } catch (error) {
     console.error('Error getting monthly payroll:', error);
@@ -646,6 +742,10 @@ exports.getMonthlyPayslip = async (req, res) => {
         grossSalary: payroll.grossSalary,
         absentDeductions: payroll.absentDeductions,
         otherDeductions: payroll.otherDeductions,
+        otherIncentives: payroll.otherIncentives || 0,
+        incentiveDetails: payroll.incentiveDetails || [],
+        arrears: payroll.arrears || 0,
+        arrearsDetails: payroll.arrearsDetails || [],
         netSalary: payroll.netSalary
       },
       generatedDate: payroll.createdAt,
@@ -950,6 +1050,7 @@ function calculateMonthlySalary(employee, attendanceRecords, fineRecords) {
 exports.getUnprocessedIncentives = async (req, res) => {
   try {
     const { employeeId, startDate, endDate } = req.query;
+    console.log({employeeId, startDate, endDate} , "getUnprocessedIncentives")
     
     if (!employeeId) {
       return res.status(400).json({ success: false, message: 'Employee ID is required' });
@@ -958,7 +1059,7 @@ exports.getUnprocessedIncentives = async (req, res) => {
     // Build query
     const query = {
       employeeId,
-      processed: false,
+      processed: false
     };
     
     // Add date range if provided
@@ -974,17 +1075,22 @@ exports.getUnprocessedIncentives = async (req, res) => {
     
     // Find incentives
     const incentives = await OtherIncentive.find(query);
+    console.log({incentives})
+
     
-    // Calculate total
-    const totalAmount = incentives.reduce((sum, incentive) => sum + incentive.amount, 0);
+    // Calculate total for approved incentives only
+    const approvedIncentives = incentives.filter(inc => inc.status === 'Approved');
+    const totalAmount = approvedIncentives.reduce((sum, incentive) => sum + incentive.amount, 0);
     
     return res.status(200).json({
       success: true,
       message: 'Unprocessed incentives fetched successfully',
       data: {
         incentives,
+        approvedIncentives,
         totalAmount,
-        count: incentives.length
+        count: incentives.length,
+        approvedCount: approvedIncentives.length
       }
     });
   } catch (error) {
@@ -992,6 +1098,61 @@ exports.getUnprocessedIncentives = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch unprocessed incentives',
+      error: error.message
+    });
+  }
+};
+
+// Get unprocessed arrears for an employee
+exports.getUnprocessedArrears = async (req, res) => {
+  try {
+    const { employeeId, startDate, endDate } = req.query;
+    console.log({employeeId, startDate, endDate} , "getUnprocessedArrears")
+    if (!employeeId) {
+      return res.status(400).json({ success: false, message: 'Employee ID is required' });
+    }
+    
+    // Build query
+    const query = {
+      employeeId,
+      processed: false
+    };
+    
+    // Add date range if provided
+    if (startDate || endDate) {
+      query.deductionDate = {};
+      if (startDate) query.deductionDate.$gte = new Date(startDate);
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        query.deductionDate.$lte = endDateObj;
+      }
+    }
+    
+    // Find arrears
+    const arrears = await Arrears.find(query);
+    console.log({arrears})
+    
+    // Calculate total for approved arrears only
+    const approvedArrears = arrears.filter(arr => arr.status === 'Approved');
+    const totalAmount = approvedArrears.reduce((sum, arrears) => sum + arrears.amount, 0);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Unprocessed arrears fetched successfully',
+      data: {
+        arrears,
+        approvedArrears,
+        totalAmount,
+        count: arrears.length,
+        approvedCount: approvedArrears.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching unprocessed arrears:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch unprocessed arrears',
       error: error.message
     });
   }
@@ -1120,6 +1281,7 @@ module.exports = {
   getMonthlyPayslip: exports.getMonthlyPayslip,
   
   listAllPayrolls: exports.listAllPayrolls,
-  getUnprocessedIncentives: exports.getUnprocessedIncentives
+  getUnprocessedIncentives: exports.getUnprocessedIncentives,
+  getUnprocessedArrears: exports.getUnprocessedArrears
 };
 
