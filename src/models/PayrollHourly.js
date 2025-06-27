@@ -82,6 +82,16 @@ const PayrollHourlySchema = new mongoose.Schema(
       default: [],
       comment: 'Details of fine deductions subtracted from this payroll'
     },
+    advancedSalary: {
+      type: Number,
+      default: 0,
+      comment: 'Advanced salary amount subtracted from the salary'
+    },
+    advancedSalaryDetails: {
+      type: Array,
+      default: [],
+      comment: 'Details of advanced salary subtracted from this payroll'
+    },
     netSalary: {
       type: Number,
       required: [true, 'Net salary is required'],
@@ -131,6 +141,8 @@ PayrollHourlySchema.methods.generatePayslip = function() {
       arrearsDetails: this.arrearsDetails || [],
       fineDeductions: this.fineDeductions,
       fineDeductionDetails: this.fineDeductionDetails || [],
+      advancedSalary: this.advancedSalary,
+      advancedSalaryDetails: this.advancedSalaryDetails || [],
       netSalary: this.netSalary,
     },
     generatedDate: this.createdAt,

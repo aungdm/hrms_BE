@@ -9,6 +9,7 @@ const OtherDeduction = require('../models/otherDeduction');
 const OtherIncentive = require('../models/otherIncentives');
 const Arrears = require('../models/arrears');
 const FineDeduction = require('../models/fineDeduction');
+const AdvancedSalary = require('../models/advancedSalary');
 
 // ---------- Hourly Employee Payroll Controllers ----------
 
@@ -86,6 +87,24 @@ exports.generateHourlyPayroll = async (req, res) => {
         // status: "Approved"
       });
       console.log({fineDeductionRecords} , "hourly fineDeductionRecords")
+
+      const otherDeductionRecords = await OtherDeduction.find({
+        employeeId: employee._id,
+        deductionDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        processed: false,
+        // status: "Approved"
+      });
+      console.log({otherDeductionRecords} , "hourly otherDeductionRecords")
+      
+      // Get advanced salary for this employee that are approved and not processed yet
+      console.log({startDate, endDate} , "hourly startDate, endDate")
+      const advancedSalaryRecords = await AdvancedSalary.find({
+        employeeId: employee._id,
+        requiredDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        status: "Approved",
+        processed: false
+      });
+      console.log({advancedSalaryRecords}, "hourly advancedSalaryRecords");
       
       // Calculate salary based on hourly rules
       const {
@@ -144,10 +163,39 @@ exports.generateHourlyPayroll = async (req, res) => {
           description: fineDeduction.description
         });
       }
-      console.log({fineDeductionRecords} ,{totalFineDeductions} , "hourly fineDeductionRecords")
+
+      let totalOtherDeductions = 0;
+      const otherDeductionDetails = [];
       
-      // Adjust net salary with incentives, arrears, and fine deductions
-      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions;
+      for (const otherDeduction of otherDeductionRecords) {
+        totalOtherDeductions += otherDeduction.amount;
+        otherDeductionDetails.push({
+          id: otherDeduction._id,
+          type: otherDeduction.deductionType,
+          amount: otherDeduction.amount,
+          date: otherDeduction.deductionDate,
+          description: otherDeduction.description
+        });
+      }
+      
+      // Calculate total advanced salary deductions
+      let totalAdvancedSalary = 0;
+      const advancedSalaryDetails = [];
+      
+      for (const advancedSalary of advancedSalaryRecords) {
+        totalAdvancedSalary += advancedSalary.approvedAmount;
+        advancedSalaryDetails.push({
+          id: advancedSalary._id,
+          amount: advancedSalary.approvedAmount,
+          date: advancedSalary.approvalDate,
+          requestDate: advancedSalary.requestDate,
+          description: advancedSalary.description || "Advanced Salary"
+        });
+      }
+      console.log({advancedSalaryRecords}, {totalAdvancedSalary}, "hourly advancedSalaryRecords");
+      
+      // Adjust net salary with incentives, arrears, fine deductions, and advanced salary
+      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions - totalAdvancedSalary;
       console.log({finalNetSalary} , "hourly finalNetSalary")
 
       // Create payroll record
@@ -170,6 +218,8 @@ exports.generateHourlyPayroll = async (req, res) => {
         arrearsDetails,
         fineDeductions: totalFineDeductions,
         fineDeductionDetails,
+        advancedSalary: totalAdvancedSalary,
+        advancedSalaryDetails,
         netSalary: finalNetSalary,
         dailyCalculations,
         status: 'Generated',
@@ -193,8 +243,23 @@ exports.generateHourlyPayroll = async (req, res) => {
       
       // Mark all processed fine deductions as processed
       if (fineDeductionRecords.length > 0) {
-        await FineDeduction.updateMany(
-          { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
+          await FineDeduction.updateMany(
+            { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
+            { processed: true }
+          );
+        }
+
+        if (otherDeductionRecords.length > 0) {
+          await OtherDeduction.updateMany(
+            { _id: { $in: otherDeductionRecords.map(other => other._id) } },
+            { processed: true }
+          );
+        }
+      
+      // Mark all processed advanced salaries as processed
+      if (advancedSalaryRecords.length > 0) {
+        await AdvancedSalary.updateMany(
+          { _id: { $in: advancedSalaryRecords.map(adv => adv._id) } },
           { processed: true }
         );
       }
@@ -418,6 +483,8 @@ exports.getHourlyPayslip = async (req, res) => {
         arrearsDetails: payroll.arrearsDetails || [],
         fineDeductions: payroll.fineDeductions || 0,
         fineDeductionDetails: payroll.fineDeductionDetails || [],
+        advancedSalary: payroll.advancedSalary || 0,
+        advancedSalaryDetails: payroll.advancedSalaryDetails || [],
         netSalary: payroll.netSalary
       },
       dailyCalculations: payroll.dailyCalculations || [],
@@ -496,7 +563,6 @@ exports.generateMonthlyPayroll = async (req, res) => {
       });
       console.log({incentiveRecords})
        
-
       // Get arrears for this employee within date range that are not processed yet
       const arrearsRecords = await Arrears.find({
         employeeId: employee._id,
@@ -512,6 +578,15 @@ exports.generateMonthlyPayroll = async (req, res) => {
         processed: false,
       });
       console.log({fineDeductionRecords}, "monthly fineDeductionRecords")
+      
+      // Get advanced salary for this employee that are approved and not processed yet
+      const advancedSalaryRecords = await AdvancedSalary.find({
+        employeeId: employee._id,
+        requiredDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        status: "Approved",
+        processed: false
+      });
+      console.log({advancedSalaryRecords}, "monthly advancedSalaryRecords");
       
       // Calculate salary based on monthly rules
       const {
@@ -568,8 +643,24 @@ exports.generateMonthlyPayroll = async (req, res) => {
         });
       }
       
-      // Adjust net salary with incentives, arrears, and fine deductions
-      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions;
+      // Calculate total advanced salary deductions
+      let totalAdvancedSalary = 0;
+      const advancedSalaryDetails = [];
+      
+      for (const advancedSalary of advancedSalaryRecords) {
+        totalAdvancedSalary += advancedSalary.approvedAmount;
+        advancedSalaryDetails.push({
+          id: advancedSalary._id,
+          amount: advancedSalary.approvedAmount,
+          date: advancedSalary.approvalDate,
+          requestDate: advancedSalary.requestDate,
+          description: advancedSalary.description || "Advanced Salary"
+        });
+      }
+      console.log({advancedSalaryRecords}, {totalAdvancedSalary}, "monthly advancedSalaryRecords");
+      
+      // Adjust net salary with incentives, arrears, fine deductions, and advanced salary
+      const finalNetSalary = netSalary + totalIncentives + totalArrears - totalFineDeductions - totalAdvancedSalary;
       
       // Create payroll record
       const payroll = await PayrollMonthly.create({
@@ -588,6 +679,8 @@ exports.generateMonthlyPayroll = async (req, res) => {
         arrearsDetails,
         fineDeductions: totalFineDeductions,
         fineDeductionDetails,
+        advancedSalary: totalAdvancedSalary,
+        advancedSalaryDetails,
         netSalary: finalNetSalary,
         dailyCalculations,
         status: 'Generated',
@@ -613,6 +706,14 @@ exports.generateMonthlyPayroll = async (req, res) => {
       if (fineDeductionRecords.length > 0) {
         await FineDeduction.updateMany(
           { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
+          { processed: true }
+        );
+      }
+      
+      // Mark all processed advanced salaries as processed
+      if (advancedSalaryRecords.length > 0) {
+        await AdvancedSalary.updateMany(
+          { _id: { $in: advancedSalaryRecords.map(adv => adv._id) } },
           { processed: true }
         );
       }
@@ -831,6 +932,8 @@ exports.getMonthlyPayslip = async (req, res) => {
         arrearsDetails: payroll.arrearsDetails || [],
         fineDeductions: payroll.fineDeductions || 0,
         fineDeductionDetails: payroll.fineDeductionDetails || [],
+        advancedSalary: payroll.advancedSalary || 0,
+        advancedSalaryDetails: payroll.advancedSalaryDetails || [],
         netSalary: payroll.netSalary
       },
       generatedDate: payroll.createdAt,
@@ -1299,6 +1402,63 @@ exports.getUnprocessedFineDeductions = async (req, res) => {
   }
 };
 
+// Get unprocessed advanced salaries for an employee
+exports.getUnprocessedAdvancedSalaries = async (req, res) => {
+  try {
+    const { employeeId, startDate, endDate } = req.query;
+    console.log({employeeId, startDate, endDate}, "getUnprocessedAdvancedSalaries")
+    
+    if (!employeeId) {
+      return res.status(400).json({ success: false, message: 'Employee ID is required' });
+    }
+    
+    // Build query
+    const query = {
+      employeeId,
+      processed: false,
+      status: "Approved"
+    };
+    
+    // Add date range if provided
+    if (startDate || endDate) {
+      query.approvalDate = {};
+      if (startDate) query.approvalDate.$gte = new Date(startDate);
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        query.approvalDate.$lte = endDateObj;
+      }
+    }
+    
+    // Find advanced salaries
+    const advancedSalaries = await AdvancedSalary.find(query);
+    console.log({advancedSalaries})
+    
+    // Calculate total for approved advanced salaries
+    const approvedAdvancedSalaries = advancedSalaries.filter(adv => adv.status === 'Approved');
+    const totalAmount = approvedAdvancedSalaries.reduce((sum, adv) => sum + adv.approvedAmount, 0);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Unprocessed advanced salaries fetched successfully',
+      data: {
+        advancedSalaries,
+        approvedAdvancedSalaries,
+        totalAmount,
+        count: advancedSalaries.length,
+        approvedCount: approvedAdvancedSalaries.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching unprocessed advanced salaries:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch unprocessed advanced salaries',
+      error: error.message
+    });
+  }
+};
+
 // Combined function to list all payrolls (both hourly and monthly)
 exports.listAllPayrolls = async (req, res) => {
   try {
@@ -1424,6 +1584,7 @@ module.exports = {
   listAllPayrolls: exports.listAllPayrolls,
   getUnprocessedIncentives: exports.getUnprocessedIncentives,
   getUnprocessedArrears: exports.getUnprocessedArrears,
-  getUnprocessedFineDeductions: exports.getUnprocessedFineDeductions
+  getUnprocessedFineDeductions: exports.getUnprocessedFineDeductions,
+  getUnprocessedAdvancedSalaries: exports.getUnprocessedAdvancedSalaries
 };
 
