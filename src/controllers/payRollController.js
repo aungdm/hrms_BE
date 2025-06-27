@@ -6,6 +6,7 @@ const PayrollMonthly = require('../models/PayrollMonthly');
 const DailyAttendance = require('../models/dailyAttendance'); 
 const Employee = require('../models/employee');
 const OtherDeduction = require('../models/otherDeduction');
+const OtherIncentive = require('../models/otherIncentives');
 
 // ---------- Hourly Employee Payroll Controllers ----------
 
@@ -57,6 +58,13 @@ exports.generateHourlyPayroll = async (req, res) => {
         date: { $gte: new Date(startDate), $lte: new Date(endDate) }
       });
       
+      // Get other incentives for this employee within date range that are not processed yet
+      const incentiveRecords = await OtherIncentive.find({
+        employeeId: employee._id,
+        incentiveDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        processed: false
+      });
+      
       // Calculate salary based on hourly rules
       const {
         grossSalary,
@@ -69,6 +77,24 @@ exports.generateHourlyPayroll = async (req, res) => {
         netSalary,
         dailyCalculations
       } = calculateHourlySalary(employee, attendanceRecords, fineRecords);
+      
+      // Calculate total incentives
+      let totalIncentives = 0;
+      const incentiveDetails = [];
+      
+      for (const incentive of incentiveRecords) {
+        totalIncentives += incentive.amount;
+        incentiveDetails.push({
+          id: incentive._id,
+          type: incentive.incentiveType,
+          amount: incentive.amount,
+          date: incentive.incentiveDate,
+          description: incentive.description
+        });
+      }
+      
+      // Adjust net salary with incentives
+      const finalNetSalary = netSalary + totalIncentives;
       
       // Create payroll record
       const payroll = await PayrollHourly.create({
@@ -84,10 +110,20 @@ exports.generateHourlyPayroll = async (req, res) => {
         lateFines,
         otherDeductions,
         overtimePay,
-        netSalary,
+        otherIncentives: totalIncentives,
+        incentiveDetails,
+        netSalary: finalNetSalary,
         dailyCalculations,
         status: 'Generated',
       });
+      
+      // Mark all processed incentives as processed
+      if (incentiveRecords.length > 0) {
+        await OtherIncentive.updateMany(
+          { _id: { $in: incentiveRecords.map(inc => inc._id) } },
+          { processed: true }
+        );
+      }
       
       payrolls.push(payroll);
     }
@@ -356,6 +392,14 @@ exports.generateMonthlyPayroll = async (req, res) => {
         date: { $gte: new Date(startDate), $lte: new Date(endDate) }
       });
       
+      // Get other incentives for this employee within date range that are not processed yet
+      const incentiveRecords = await OtherIncentive.find({
+        employeeId: employee._id,
+        incentiveDate: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        processed: false,
+        status: "Approved"
+      });
+      
       // Calculate salary based on monthly rules
       const {
         grossSalary,
@@ -365,6 +409,24 @@ exports.generateMonthlyPayroll = async (req, res) => {
         netSalary,
         dailyCalculations
       } = calculateMonthlySalary(employee, attendanceRecords, fineRecords);
+      
+      // Calculate total incentives
+      let totalIncentives = 0;
+      const incentiveDetails = [];
+      
+      for (const incentive of incentiveRecords) {
+        totalIncentives += incentive.amount;
+        incentiveDetails.push({
+          id: incentive._id,
+          type: incentive.incentiveType,
+          amount: incentive.amount,
+          date: incentive.incentiveDate,
+          description: incentive.description
+        });
+      }
+      
+      // Adjust net salary with incentives
+      const finalNetSalary = netSalary + totalIncentives;
       
       // Create payroll record
       const payroll = await PayrollMonthly.create({
@@ -377,10 +439,20 @@ exports.generateMonthlyPayroll = async (req, res) => {
         absentDays,
         absentDeductions,
         otherDeductions,
-        netSalary,
+        otherIncentives: totalIncentives,
+        incentiveDetails,
+        netSalary: finalNetSalary,
         dailyCalculations,
         status: 'Generated',
       });
+      
+      // Mark all processed incentives as processed
+      if (incentiveRecords.length > 0) {
+        await OtherIncentive.updateMany(
+          { _id: { $in: incentiveRecords.map(inc => inc._id) } },
+          { processed: true }
+        );
+      }
       
       payrolls.push(payroll);
     }
@@ -874,6 +946,57 @@ function calculateMonthlySalary(employee, attendanceRecords, fineRecords) {
   };
 }
 
+// Get unprocessed incentives for an employee
+exports.getUnprocessedIncentives = async (req, res) => {
+  try {
+    const { employeeId, startDate, endDate } = req.query;
+    
+    if (!employeeId) {
+      return res.status(400).json({ success: false, message: 'Employee ID is required' });
+    }
+    
+    // Build query
+    const query = {
+      employeeId,
+      processed: false,
+    };
+    
+    // Add date range if provided
+    if (startDate || endDate) {
+      query.incentiveDate = {};
+      if (startDate) query.incentiveDate.$gte = new Date(startDate);
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        query.incentiveDate.$lte = endDateObj;
+      }
+    }
+    
+    // Find incentives
+    const incentives = await OtherIncentive.find(query);
+    
+    // Calculate total
+    const totalAmount = incentives.reduce((sum, incentive) => sum + incentive.amount, 0);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Unprocessed incentives fetched successfully',
+      data: {
+        incentives,
+        totalAmount,
+        count: incentives.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching unprocessed incentives:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch unprocessed incentives',
+      error: error.message
+    });
+  }
+};
+
 // Combined function to list all payrolls (both hourly and monthly)
 exports.listAllPayrolls = async (req, res) => {
   try {
@@ -996,6 +1119,7 @@ module.exports = {
   deleteMonthlyPayroll: exports.deleteMonthlyPayroll,
   getMonthlyPayslip: exports.getMonthlyPayslip,
   
-  listAllPayrolls: exports.listAllPayrolls
+  listAllPayrolls: exports.listAllPayrolls,
+  getUnprocessedIncentives: exports.getUnprocessedIncentives
 };
 

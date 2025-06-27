@@ -52,6 +52,16 @@ const PayrollHourlySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    otherIncentives: {
+      type: Number,
+      default: 0,
+      comment: 'Additional incentives added to the salary'
+    },
+    incentiveDetails: {
+      type: Array,
+      default: [],
+      comment: 'Details of incentives added to this payroll'
+    },
     netSalary: {
       type: Number,
       required: [true, 'Net salary is required'],
@@ -95,6 +105,8 @@ PayrollHourlySchema.methods.generatePayslip = function() {
       lateFines: this.lateFines,
       otherDeductions: this.otherDeductions,
       overtimePay: this.overtimePay,
+      otherIncentives: this.otherIncentives,
+      incentiveDetails: this.incentiveDetails || [],
       netSalary: this.netSalary,
     },
     generatedDate: this.createdAt,

@@ -7,6 +7,9 @@ const payrollController = require("../controllers/payRollController");
 // Root level route to get all payrolls (both hourly and monthly)
 router.get("/", payrollController.listAllPayrolls);
 
+// Get unprocessed incentives for an employee
+router.get("/unprocessed-incentives", payrollController.getUnprocessedIncentives);
+
 // Hourly Employee Payroll Routes
 // Generate payroll for hourly employees within date range
 router.post("/hourly/generate", payrollController.generateHourlyPayroll);

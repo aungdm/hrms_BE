@@ -39,6 +39,16 @@ const PayrollMonthlySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    otherIncentives: {
+      type: Number,
+      default: 0,
+      comment: 'Additional incentives added to the salary'
+    },
+    incentiveDetails: {
+      type: Array,
+      default: [],
+      comment: 'Details of incentives added to this payroll'
+    },
     netSalary: {
       type: Number,
       required: [true, 'Net salary is required'],
@@ -79,6 +89,8 @@ PayrollMonthlySchema.methods.generatePayslip = function() {
       absentDays: this.absentDays,
       absentDeductions: this.absentDeductions,
       otherDeductions: this.otherDeductions,
+      otherIncentives: this.otherIncentives,
+      incentiveDetails: this.incentiveDetails || [],
       netSalary: this.netSalary,
     },
     dailyCalculations: this.dailyCalculations || [],
