@@ -1030,15 +1030,15 @@ const updateRelaxationRequest = async (req, res) => {
             
             // When a relaxation request is approved, we reset the attendance record to match the expected times
             // This essentially gives the employee the benefit of being counted as on-time
-            if (record.expectedCheckinTime) {
+            if (record.firstEntry) {
                 // Reset firstEntry to match expected check-in time
-                updateData.firstEntry = new Date(record.expectedCheckinTime);
+                updateData.firstEntry = new Date(record.firstEntry);
                 console.log("✓ Reset firstEntry to expectedCheckinTime:", updateData.firstEntry);
             }
             
-            if (record.expectedCheckoutTime) {
+            if (record.lastExit) {
                 // Reset lastExit to match expected check-out time
-                updateData.lastExit = new Date(record.expectedCheckoutTime);
+                updateData.lastExit = new Date(record.lastExit);
                 console.log("✓ Reset lastExit to expectedCheckoutTime:", updateData.lastExit);
             }
             
