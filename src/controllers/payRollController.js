@@ -114,6 +114,8 @@ exports.generateHourlyPayroll = async (req, res) => {
         payableHours,
         lateFines,
         otherDeductions,
+        absentDays,
+        absentDeductions,
         overtimePay,
         netSalary,
         dailyCalculations
@@ -212,6 +214,8 @@ exports.generateHourlyPayroll = async (req, res) => {
         lateFines,
         otherDeductions,
         otherDeductionDetails,
+        absentDays,
+        absentDeductions,
         overtimePay,
         otherIncentives: totalIncentives,
         incentiveDetails,
@@ -353,6 +357,10 @@ exports.getHourlyPayrollById = async (req, res) => {
     // Ensure other deduction details are included
     if (!payrollData.otherDeductionDetails) payrollData.otherDeductionDetails = [];
     
+    // Ensure absent days and deductions are included
+    if (!payrollData.absentDays) payrollData.absentDays = 0;
+    if (!payrollData.absentDeductions) payrollData.absentDeductions = 0;
+    
     return res.status(200).json({
       success: true,
       data: payrollData
@@ -370,7 +378,7 @@ exports.getHourlyPayrollById = async (req, res) => {
 // Update hourly payroll
 exports.updateHourlyPayroll = async (req, res) => {
   try {
-    const { grossSalary, lateFines, otherDeductions, overtimePay, netSalary, status } = req.body;
+    const { grossSalary, lateFines, otherDeductions, overtimePay, missingDeduction, netSalary, status } = req.body;
     
     const payroll = await PayrollHourly.findById(req.params.id);
     
@@ -386,13 +394,18 @@ exports.updateHourlyPayroll = async (req, res) => {
     if (lateFines !== undefined) payroll.lateFines = lateFines;
     if (otherDeductions !== undefined) payroll.otherDeductions = otherDeductions;
     if (overtimePay !== undefined) payroll.overtimePay = overtimePay;
+    if (missingDeduction !== undefined) payroll.missingDeduction = missingDeduction;
     if (netSalary !== undefined) payroll.netSalary = netSalary;
     if (status) payroll.status = status;
     
     // Recalculate net salary if components changed but net not provided
-    if ((grossSalary !== undefined || lateFines !== undefined || otherDeductions !== undefined || overtimePay !== undefined) 
-        && netSalary === undefined) {
-      payroll.netSalary = payroll.grossSalary - payroll.lateFines - payroll.otherDeductions + payroll.overtimePay;
+    if ((grossSalary !== undefined || lateFines !== undefined || otherDeductions !== undefined || 
+         overtimePay !== undefined || missingDeduction !== undefined) && netSalary === undefined) {
+      payroll.netSalary = payroll.grossSalary - payroll.lateFines - payroll.otherDeductions + 
+                          payroll.overtimePay - (payroll.missingDeduction || 0) +
+                          (payroll.otherIncentives || 0) + (payroll.arrears || 0) - 
+                          (payroll.fineDeductions || 0) - (payroll.advancedSalary || 0) - 
+                          (payroll.absentDeductions || 0);
     }
     
     await payroll.save();
@@ -481,6 +494,8 @@ exports.getHourlyPayslip = async (req, res) => {
         lateFines: payroll.lateFines,
         otherDeductions: payroll.otherDeductions,
         otherDeductionDetails: payroll.otherDeductionDetails || [],
+        absentDays: payroll.absentDays || 0,
+        absentDeductions: payroll.absentDeductions || 0,
         overtimePay: payroll.overtimePay,
         otherIncentives: payroll.otherIncentives || 0,
         incentiveDetails: payroll.incentiveDetails || [],
@@ -490,6 +505,7 @@ exports.getHourlyPayslip = async (req, res) => {
         fineDeductionDetails: payroll.fineDeductionDetails || [],
         advancedSalary: payroll.advancedSalary || 0,
         advancedSalaryDetails: payroll.advancedSalaryDetails || [],
+        missingDeduction: payroll.missingDeduction || 0,
         netSalary: payroll.netSalary
       },
       dailyCalculations: payroll.dailyCalculations || [],
@@ -861,7 +877,7 @@ exports.getMonthlyPayrollById = async (req, res) => {
 // Update monthly payroll
 exports.updateMonthlyPayroll = async (req, res) => {
   try {
-    const { grossSalary, absentDeductions, otherDeductions, netSalary, status } = req.body;
+    const { grossSalary, absentDeductions, otherDeductions, missingDeduction, netSalary, status } = req.body;
     
     const payroll = await PayrollMonthly.findById(req.params.id);
     
@@ -876,13 +892,17 @@ exports.updateMonthlyPayroll = async (req, res) => {
     if (grossSalary !== undefined) payroll.grossSalary = grossSalary;
     if (absentDeductions !== undefined) payroll.absentDeductions = absentDeductions;
     if (otherDeductions !== undefined) payroll.otherDeductions = otherDeductions;
+    if (missingDeduction !== undefined) payroll.missingDeduction = missingDeduction;
     if (netSalary !== undefined) payroll.netSalary = netSalary;
     if (status) payroll.status = status;
     
     // Recalculate net salary if components changed but net not provided
-    if ((grossSalary !== undefined || absentDeductions !== undefined || otherDeductions !== undefined) 
-        && netSalary === undefined) {
-      payroll.netSalary = payroll.grossSalary - payroll.absentDeductions - payroll.otherDeductions;
+    if ((grossSalary !== undefined || absentDeductions !== undefined || otherDeductions !== undefined ||
+         missingDeduction !== undefined) && netSalary === undefined) {
+      payroll.netSalary = payroll.grossSalary - payroll.absentDeductions - payroll.otherDeductions - 
+                          (payroll.missingDeduction || 0) + (payroll.otherIncentives || 0) + 
+                          (payroll.arrears || 0) - (payroll.fineDeductions || 0) - 
+                          (payroll.advancedSalary || 0);
     }
     
     await payroll.save();
@@ -976,6 +996,7 @@ exports.getMonthlyPayslip = async (req, res) => {
         fineDeductionDetails: payroll.fineDeductionDetails || [],
         advancedSalary: payroll.advancedSalary || 0,
         advancedSalaryDetails: payroll.advancedSalaryDetails || [],
+        missingDeduction: payroll.missingDeduction || 0,
         netSalary: payroll.netSalary
       },
       generatedDate: payroll.createdAt,
@@ -1004,15 +1025,18 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
   let lateFines = 0;
   let otherDeductions = 0;
   let overtimePay = 0;
+  let absentDeductions = 0;
   
   // Calculate per hour and per minute salary according to specifications
   const workingDays = 26; // As specified in requirements
   const shiftHours = 8; // As specified in requirements
   const perHourRate = grossSalary / (workingDays * shiftHours);
   const perMinuteRate = perHourRate / 60;
+  const perDayRate = grossSalary / workingDays;
   
-  // Initialize payable hours
+  // Initialize payable hours and track absent days
   let payableHours = 0;
+  let absentDays = 0;
   
   // Create a detailed breakdown of day-by-day calculations
   const dailyCalculations = [];
@@ -1031,12 +1055,18 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     }
   });
   
+  // Create a set of dates covered by attendance records to track missing days
+  const datesWithRecords = new Set(attendanceRecords.map(record => 
+    new Date(record.date).toISOString().split('T')[0]
+  ));
+  
   // Process attendance records for payroll calculations
   attendanceRecords.forEach(record => {
     let dailyPayableMinutes = 0;
     let dailyOvertimeMinutes = 0;
     let dailyLateFine = 0;
     let dailyOvertimePay = 0;
+    let dailyAbsentDeduction = 0;
     let status = record.status || 'Present';
     
     const dailyCalc = {
@@ -1053,16 +1083,30 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
       dailyPay: 0,
       overtimePay: 0,
       lateFine: 0,
+      absentDeduction: 0,
       totalDailyPay: 0,
       notes: ''
     };
     
+    // Check for absent status and apply deduction
+    if (status === 'Absent') {
+      absentDays++;
+      dailyAbsentDeduction = 10000; // Fixed deduction for hourly employees
+      absentDeductions += dailyAbsentDeduction;
+      dailyCalc.absentDeduction = dailyAbsentDeduction;
+      dailyCalc.notes = `Absent - Deduction: ₹${dailyAbsentDeduction}`;
+      
+      // Add to daily calculations and skip the rest of the processing
+      dailyCalculations.push(dailyCalc);
+      return;
+    }
+    
     // Calculate payable minutes based on overtime status and approval
     if (record.isOverTime) {
       if (record.overTimeStatus === "Approved") {
-        // Use workDuration minutes and add to payable hours
-        dailyPayableMinutes = record.workDuration || 0;
+        // Use workDuration minutes minus overtime minutes for payable hours
         dailyOvertimeMinutes = record.overTimeMinutes || 0;
+        dailyPayableMinutes = (record.workDuration || 0) - dailyOvertimeMinutes;
         
         // Calculate overtime pay based on leadership role
         if (isLeadership) {
@@ -1181,7 +1225,8 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     dailyCalc.dailyPay = dailyRegularPay;
     dailyCalc.overtimePay = dailyOvertimePay;
     dailyCalc.lateFine = dailyLateFine;
-    dailyCalc.totalDailyPay = (dailyPayableMinutes * perMinuteRate) + dailyOvertimePay - dailyLateFine;
+    dailyCalc.absentDeduction = dailyAbsentDeduction;
+    dailyCalc.totalDailyPay = (dailyPayableMinutes * perMinuteRate) + dailyOvertimePay - dailyLateFine - dailyAbsentDeduction;
     
     // Add calculation summary to notes
     if (dailyPayableMinutes > 0) {
@@ -1192,6 +1237,9 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
       if (dailyLateFine > 0) {
         dailyCalc.notes += ` - Fine: ₹${dailyLateFine}`;
       }
+      if (dailyAbsentDeduction > 0) {
+        dailyCalc.notes += ` - Absent: ₹${dailyAbsentDeduction}`;
+      }
       dailyCalc.notes += ` = Total: ₹${dailyCalc.totalDailyPay.toFixed(2)}`;
     } else {
       dailyCalc.notes += ` | No payable time recorded`;
@@ -1201,6 +1249,44 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     
     dailyCalculations.push(dailyCalc);
   });
+  
+  // Check for missing workdays (expected 26 days)
+  // Get the date range from the attendance records
+  if (attendanceRecords.length > 0) {
+    const dates = attendanceRecords.map(record => new Date(record.date));
+    const minDate = new Date(Math.min(...dates));
+    const maxDate = new Date(Math.max(...dates));
+    
+    // Calculate the number of workdays in the period
+    const startMonth = minDate.getMonth();
+    const startYear = minDate.getFullYear();
+    const endMonth = maxDate.getMonth();
+    const endYear = maxDate.getFullYear();
+    
+    // If we have a full month of data, check for missing workdays
+    if ((startMonth === endMonth && startYear === endYear) || 
+        (attendanceRecords.length >= workingDays)) {
+      // Calculate missing workdays (assuming 26 workdays per month)
+      const missingWorkdays = workingDays - attendanceRecords.length;
+      
+      if (missingWorkdays > 0) {
+        // Add deduction for each missing workday
+        const missingDayDeduction = 10000; // Fixed deduction per missing day
+        const totalMissingDeduction = missingWorkdays * missingDayDeduction;
+        
+        absentDays += missingWorkdays;
+        absentDeductions += totalMissingDeduction;
+        
+        // Add a summary entry for missing workdays
+        dailyCalculations.push({
+          date: maxDate,
+          status: 'Missing Workdays',
+          absentDeduction: totalMissingDeduction,
+          notes: `${missingWorkdays} missing workday(s) - Deduction: ₹${totalMissingDeduction} (₹${missingDayDeduction} per day)`
+        });
+      }
+    }
+  }
   
   // Add other fines/deductions from monthly deductions
   fineRecords.forEach(fine => {
@@ -1219,7 +1305,7 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
   
   // Calculate salary components
   const actualGrossSalary = payableHours * perHourRate;
-  const netSalary = actualGrossSalary - lateFines - otherDeductions + overtimePay;
+  const netSalary = actualGrossSalary - lateFines - otherDeductions - absentDeductions + overtimePay;
   
   return {
     grossSalary: grossSalary, // Monthly base salary for reference
@@ -1228,6 +1314,8 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     payableHours,
     lateFines,
     otherDeductions,
+    absentDays,
+    absentDeductions,
     overtimePay,
     netSalary,
     dailyCalculations

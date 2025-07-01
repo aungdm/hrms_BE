@@ -40,6 +40,16 @@ const PayrollHourlySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    absentDays: {
+      type: Number,
+      default: 0,
+      comment: 'Number of days the employee was absent or missing from work'
+    },
+    absentDeductions: {
+      type: Number,
+      default: 0,
+      comment: 'Deductions for absent days (₹10,000 per day for hourly employees)'
+    },
     lateFines: {
       type: Number,
       default: 0,
@@ -97,6 +107,11 @@ const PayrollHourlySchema = new mongoose.Schema(
       default: [],
       comment: 'Details of advanced salary subtracted from this payroll'
     },
+    missingDeduction: {
+      type: Number,
+      default: 0,
+      comment: 'Additional deductions not covered by other categories'
+    },
     netSalary: {
       type: Number,
       required: [true, 'Net salary is required'],
@@ -137,6 +152,8 @@ PayrollHourlySchema.methods.generatePayslip = function() {
       actualGrossSalary: this.actualGrossSalary,
       perHourRate: this.perHourRate,
       payableHours: this.payableHours,
+      absentDays: this.absentDays || 0,
+      absentDeductions: this.absentDeductions || 0,
       lateFines: this.lateFines,
       otherDeductions: this.otherDeductions,
       otherDeductionDetails: this.otherDeductionDetails || [],
@@ -149,6 +166,7 @@ PayrollHourlySchema.methods.generatePayslip = function() {
       fineDeductionDetails: this.fineDeductionDetails || [],
       advancedSalary: this.advancedSalary,
       advancedSalaryDetails: this.advancedSalaryDetails || [],
+      missingDeduction: this.missingDeduction || 0,
       netSalary: this.netSalary,
     },
     generatedDate: this.createdAt,

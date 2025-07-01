@@ -84,6 +84,11 @@ const PayrollMonthlySchema = new mongoose.Schema(
       default: [],
       comment: 'Details of advanced salary subtracted from this payroll'
     },
+    missingDeduction: {
+      type: Number,
+      default: 0,
+      comment: 'Additional deductions not covered by other categories'
+    },
     netSalary: {
       type: Number,
       required: [true, 'Net salary is required'],
@@ -133,6 +138,7 @@ PayrollMonthlySchema.methods.generatePayslip = function() {
       fineDeductionDetails: this.fineDeductionDetails || [],
       advancedSalary: this.advancedSalary,
       advancedSalaryDetails: this.advancedSalaryDetails || [],
+      missingDeduction: this.missingDeduction || 0,
       netSalary: this.netSalary,
     },
     dailyCalculations: this.dailyCalculations || [],
