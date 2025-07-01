@@ -63,7 +63,8 @@ const updateDeduction = async (req, res) => {
       amount,
       deductionDate,
       description,
-      status
+      status,
+      processed
     } = req.body;
 
     // Find the deduction
@@ -87,6 +88,7 @@ const updateDeduction = async (req, res) => {
     if (deductionDate) deduction.deductionDate = deductionDate;
     if (description !== undefined) deduction.description = description;
     if (status) deduction.status = status;
+    if (processed !== undefined) deduction.processed = processed;
 
     await deduction.save();
 
@@ -281,6 +283,36 @@ const deleteMultipleDeductions = async (req, res) => {
   }
 };
 
+// Update processed status
+const updateProcessedStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { processed } = req.body;
+
+    if (processed === undefined) {
+      return errorRresponse(res, 400, "Processed status is required");
+    }
+
+    const deduction = await FineDeduction.findById(id);
+    if (!deduction) {
+      return errorRresponse(res, 404, "Fine deduction not found");
+    }
+
+    deduction.processed = processed;
+    await deduction.save();
+
+    return successResponse(
+      res,
+      200,
+      `Fine deduction ${processed ? 'marked as paid' : 'marked as unpaid'} successfully`,
+      deduction
+    );
+  } catch (error) {
+    console.error("Error updating fine deduction processed status:", error);
+    return errorRresponse(res, 500, "Error updating fine deduction processed status", error);
+  }
+};
+
 module.exports = {
   createDeduction,
   updateDeduction,
@@ -288,5 +320,6 @@ module.exports = {
   getDeduction,
   deleteDeduction,
   updateDeductionStatus,
-  deleteMultipleDeductions
+  deleteMultipleDeductions,
+  updateProcessedStatus
 };
