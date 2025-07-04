@@ -9,7 +9,9 @@ const {
   // searchRecords,
   // updateSalaryRecord,
   forceSyncRecords,
-  getMachinesInfo
+  getMachinesInfo,
+  getProcessingErrors,
+  resetProcessingError
 } = require("../controllers/attendanceLogsController");
 
 // Import the manual sync function from startup sequence
@@ -25,6 +27,10 @@ router.get("/logs", getRecords);
 // router.patch("/update/:id", updateSalaryRecord);
 router.post("/sync", forceSyncRecords);
 router.get("/machines", getMachinesInfo);
+
+// Routes for handling processing errors
+router.get("/processing-errors", getProcessingErrors);
+router.post("/reset-errors", resetProcessingError);
 
 // Endpoint specifically for serverless environments to trigger sync manually
 router.post("/manual-sync", async (req, res) => {

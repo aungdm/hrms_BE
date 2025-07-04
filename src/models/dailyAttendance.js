@@ -25,6 +25,7 @@ const DailyAttendanceSchema = new mongoose.Schema(
         "Holiday",
         "Check In Only",
         "Day Off",
+        "Less than Half Day",
       ],
       required: true,
       index: true,

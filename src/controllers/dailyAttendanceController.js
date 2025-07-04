@@ -811,22 +811,27 @@ const updateRecord = async (req, res) => {
     return errorRresponse(res, 500, "Error updating attendance record", error);
   }
 };
-
-// Update overtime details
 const updateOvertimeDetails = async (req, res) => {
   try {
+    console.log('========== START: updateOvertimeDetails ==========');
     const { id } = req.params;
     const { firstEntry, lastExit, approvalStatus, date } = req.body;
-    console.log({ firstEntry, lastExit, approvalStatus, date }, "updateOvertimeDetails", req.body);
+    console.log({ id, firstEntry, lastExit, approvalStatus, date }, "Request parameters");
+    console.log('Full request body:', req.body);
 
     // Find the record
+    console.log(`Searching for attendance record with ID: ${id}`);
     const record = await DailyAttendance.findById(id);
     if (!record) {
+      console.log(`No attendance record found with ID: ${id}`);
       return errorRresponse(res, 404, "Attendance record not found");
     }
+    console.log('Found attendance record:', JSON.stringify(record, null, 2));
 
     // Check if overtime exists
+    console.log(`Checking if record has overtime. isOverTime: ${record.isOverTime}`);
     if (!record.isOverTime) {
+      console.log('Record does not have overtime to update');
       return errorRresponse(
         res,
         400,
@@ -835,26 +840,48 @@ const updateOvertimeDetails = async (req, res) => {
     }
 
     const updateData = {
-      isManuallyUpdated: true, // Mark as manually updated
+      // isManuallyUpdated: true, // Mark as manually updated
     };
+    console.log('Initialized updateData:', updateData);
+
+    // Extract time in HH:MM format from existing record for debugging and reference
+    const formatTimeHHMM = (dateObj) => {
+      if (!dateObj) return null;
+      const date = new Date(dateObj);
+      if (isNaN(date.getTime())) return null;
+      return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    };
+
+    // Extract existing times in HH:MM format
+    const recordFirstEntryHHMM = formatTimeHHMM(record.firstEntry);
+    const recordLastExitHHMM = formatTimeHHMM(record.lastExit);
+    console.log(`Existing record times - firstEntry: ${recordFirstEntryHHMM}, lastExit: ${recordLastExitHHMM}`);
 
     // Helper function to check if a string is in HH:MM format
     const isTimeFormat = (timeString) => {
-      return typeof timeString === 'string' && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeString);
+      const isValid = typeof timeString === 'string' && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeString);
+      console.log(`Checking if "${timeString}" is in time format: ${isValid}`);
+      return isValid;
     };
-    console.log({ isTimeFormat }, "isTimeFormat");
-
 
     // Helper function to combine date and time
     const combineDateTime = (dateValue, timeString) => {
-      if (!dateValue || !timeString) return null;
+      console.log(`Combining date: ${dateValue} with time: ${timeString}`);
+      if (!dateValue || !timeString) {
+        console.log('Missing date or time value, returning null');
+        return null;
+      }
       
       const baseDate = new Date(dateValue);
+      console.log(`Base date object: ${baseDate}`);
+      
       const [hours, minutes] = timeString.split(':').map(Number);
+      console.log(`Extracted hours: ${hours}, minutes: ${minutes}`);
       
       // Create new date with the specified time
       const combinedDate = new Date(baseDate);
       combinedDate.setHours(hours, minutes, 0, 0);
+      console.log(`Combined date result: ${combinedDate}`);
       
       return combinedDate;
     };
@@ -862,57 +889,104 @@ const updateOvertimeDetails = async (req, res) => {
     // Process firstEntry and lastExit
     let entry = null;
     let exit = null;
+    let entryHHMM = null;
+    let exitHHMM = null;
 
+    console.log('Processing firstEntry value...');
     if (firstEntry) {
-      console.log({ firstEntry }, "firstEntry");
+      console.log(`firstEntry provided: ${firstEntry}, type: ${typeof firstEntry}`);
 
       if (isTimeFormat(firstEntry)) {
         // Handle time-only format (HH:MM)
+        console.log('firstEntry is in time-only format (HH:MM)');
+        entryHHMM = firstEntry; // Store the HH:MM format
         if (!date) {
+          console.log('Date is required but missing for time-only format');
           return errorRresponse(res, 400, "Date is required when using time-only format");
         }
         entry = combineDateTime(date, firstEntry);
+        console.log(`Converted firstEntry to datetime: ${entry}`);
       } else {
         // Handle full datetime format (backward compatibility)
+        console.log('firstEntry appears to be in full datetime format');
         entry = new Date(firstEntry);
+        entryHHMM = formatTimeHHMM(entry); // Extract HH:MM from the date
+        console.log(`Parsed firstEntry as date object: ${entry}, valid date: ${!isNaN(entry.getTime())}`);
+        console.log(`Extracted HH:MM format: ${entryHHMM}`);
       }
     } else {
       entry = record.firstEntry;
+      entryHHMM = recordFirstEntryHHMM;
+      console.log(`No firstEntry provided, using existing value: ${entry} (${entryHHMM})`);
     }
 
+    console.log('Processing lastExit value...');
     if (lastExit) {
-      console.log({ lastExit }, "lastExit");
+      console.log(`lastExit provided: ${lastExit}, type: ${typeof lastExit}`);
+      
       if (isTimeFormat(lastExit)) {
         // Handle time-only format (HH:MM)
+        console.log('lastExit is in time-only format (HH:MM)');
+        exitHHMM = lastExit; // Store the HH:MM format
         if (!date) {
+          console.log('Date is required but missing for time-only format');
           return errorRresponse(res, 400, "Date is required when using time-only format");
         }
         exit = combineDateTime(date, lastExit);
+        console.log(`Converted lastExit to datetime: ${exit}`);
       } else {
         // Handle full datetime format (backward compatibility)
+        console.log('lastExit appears to be in full datetime format');
         exit = new Date(lastExit);
+        exitHHMM = formatTimeHHMM(exit); // Extract HH:MM from the date
+        console.log(`Parsed lastExit as date object: ${exit}, valid date: ${!isNaN(exit.getTime())}`);
+        console.log(`Extracted HH:MM format: ${exitHHMM}`);
       }
     } else {
       exit = record.lastExit;
+      exitHHMM = recordLastExitHHMM;
+      console.log(`No lastExit provided, using existing value: ${exit} (${exitHHMM})`);
     }
 
+    // Log the extracted HH:MM values for clarity
+    console.log(`Working with time values - firstEntry: ${entryHHMM}, lastExit: ${exitHHMM}`);
+
     // Handle overnight scenario: if exit time is earlier than entry time, add 1 day to exit
-    if (entry && exit && exit < entry) {
-      console.log("Detected overnight work: lastExit is earlier than firstEntry, adding 1 day to lastExit");
-      exit.setDate(exit.getDate() + 1);
+    if (entry && exit) {
+      console.log(`Checking overnight scenario - entry: ${entry}, exit: ${exit}`);
+      console.log(`Time comparison: exit < entry = ${exit < entry}`);
+      
+      if (exit < entry) {
+        console.log("Detected overnight work: lastExit is earlier than firstEntry, adding 1 day to lastExit");
+        const originalExit = new Date(exit);
+        exit.setDate(exit.getDate() + 1);
+        console.log(`Updated lastExit from ${originalExit} to ${exit}`);
+      }
     }
 
     const shiftStartTime = record.expectedCheckinTime;
     const shiftEndTime = record.expectedCheckoutTime;
+    const shiftStartHHMM = formatTimeHHMM(shiftStartTime);
+    const shiftEndHHMM = formatTimeHHMM(shiftEndTime);
+    console.log(`Shift times - start: ${shiftStartTime} (${shiftStartHHMM}), end: ${shiftEndTime} (${shiftEndHHMM})`);
 
     // Only recalculate if we have all required data
     if (entry && exit && shiftStartTime && shiftEndTime) {
+      console.log('All required data available, calculating overtime details...');
+      console.log(`Parameters for calculation:
+        - Entry: ${entry} (${entryHHMM})
+        - Exit: ${exit} (${exitHHMM})
+        - Shift start: ${shiftStartTime} (${shiftStartHHMM})
+        - Shift end: ${shiftEndTime} (${shiftEndHHMM})`);
+      
       const overtimeDetails = calculateOvertimeDetails(
         entry,
         exit,
         shiftStartTime,
         shiftEndTime
       );
+      console.log('Calculated overtime details:', overtimeDetails);
+      
       updateData.firstEntry = entry;
       updateData.lastExit = exit;
       updateData.overtTimeStart = overtimeDetails.overtimeStart;
@@ -921,20 +995,37 @@ const updateOvertimeDetails = async (req, res) => {
       updateData.earlyOvertimeMinutes = overtimeDetails.earlyOvertimeMinutes;
       updateData.lateOvertimeMinutes = overtimeDetails.lateOvertimeMinutes;
       updateData.isOverTime = overtimeDetails.isOverTime;
+      
+      console.log('Updated updateData with overtime calculations:', updateData);
+    } else {
+      console.log('Missing required data for overtime calculation:');
+      console.log(`- Entry: ${!!entry} (${entryHHMM})`);
+      console.log(`- Exit: ${!!exit} (${exitHHMM})`);
+      console.log(`- Shift start: ${!!shiftStartTime} (${shiftStartHHMM})`);
+      console.log(`- Shift end: ${!!shiftEndTime} (${shiftEndHHMM})`);
     }
 
     // Update approval status if provided
     if (approvalStatus !== undefined) {
+      console.log(`Processing approval status: ${approvalStatus}`);
+      
       if (approvalStatus === "Approved") {
+        console.log('Setting status to Approved');
         updateData.overTimeStatus = "Approved";
         updateData.approvedOverTime = true;
       } else if (approvalStatus === "Reject" || approvalStatus === "Rejected") {
+        console.log('Setting status to Rejected');
         updateData.overTimeStatus = "Reject";
         updateData.approvedOverTime = false;
       } else if (approvalStatus === "Pending") {
+        console.log('Setting status to Pending');
         updateData.overTimeStatus = "Pending";
         updateData.approvedOverTime = false;
+      } else {
+        console.log(`Unrecognized approval status: ${approvalStatus}`);
       }
+    } else {
+      console.log('No approval status provided, keeping existing status');
     }
 
     // Update remarks to reflect the changes
@@ -944,14 +1035,22 @@ const updateOvertimeDetails = async (req, res) => {
       remarks += `. Overtime status changed to ${approvalStatus}`;
     }
     updateData.remarks = remarks;
+    console.log(`Updated remarks: ${remarks}`);
 
-    console.log({ updateData });
+    // Add HH:MM values to the log for clarity
+    console.log(`Final time values being used - firstEntry: ${entryHHMM}, lastExit: ${exitHHMM}`);
+    console.log('Final updateData object:', JSON.stringify(updateData, null, 2));
+    
     // Update the record
+    console.log(`Updating record with ID: ${id}`);
     const updatedRecord = await DailyAttendance.findByIdAndUpdate(
       id,
       { $set: updateData },
       { new: true }
     ).populate("employeeId", "name user_defined_code department designation");
+
+    console.log('Update successful. Updated record:', JSON.stringify(updatedRecord, null, 2));
+    console.log('========== END: updateOvertimeDetails ==========');
 
     return successResponse(
       res,
@@ -961,9 +1060,234 @@ const updateOvertimeDetails = async (req, res) => {
     );
   } catch (error) {
     console.error("Error updating overtime details:", error);
+    console.log('Stack trace:', error.stack);
     return errorRresponse(res, 500, "Error updating overtime details", error);
   }
 };
+// Update overtime details
+// const updateOvertimeDetails = async (req, res) => {
+//   try {
+//     console.log('========== START: updateOvertimeDetails ==========');
+//     const { id } = req.params;
+//     const { firstEntry, lastExit, approvalStatus, date } = req.body;
+//     console.log({ id, firstEntry, lastExit, approvalStatus, date }, "Request parameters");
+//     console.log('Full request body:', req.body);
+
+//     // Find the record
+//     console.log(`Searching for attendance record with ID: ${id}`);
+//     const record = await DailyAttendance.findById(id);
+//     if (!record) {
+//       console.log(`No attendance record found with ID: ${id}`);
+//       return errorRresponse(res, 404, "Attendance record not found");
+//     }
+//     console.log('Found attendance record:', JSON.stringify(record, null, 2));
+
+//     // Check if overtime exists
+//     console.log(`Checking if record has overtime. isOverTime: ${record.isOverTime}`);
+//     if (!record.isOverTime) {
+//       console.log('Record does not have overtime to update');
+//       return errorRresponse(
+//         res,
+//         400,
+//         "This record does not have overtime to update"
+//       );
+//     }
+
+//     const updateData = {
+//       // isManuallyUpdated: true, // Mark as manually updated
+//     };
+//     console.log('Initialized updateData:', updateData);
+
+//     // Helper function to check if a string is in HH:MM format
+//     const isTimeFormat = (timeString) => {
+//       const isValid = typeof timeString === 'string' && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeString);
+//       console.log(`Checking if "${timeString}" is in time format: ${isValid}`);
+//       return isValid;
+//     };
+
+//     // Helper function to combine date and time
+//     const combineDateTime = (dateValue, timeString) => {
+//       console.log(`Combining date: ${dateValue} with time: ${timeString}`);
+//       if (!dateValue || !timeString) {
+//         console.log('Missing date or time value, returning null');
+//         return null;
+//       }
+      
+//       const baseDate = new Date(dateValue);
+//       console.log(`Base date object: ${baseDate}`);
+      
+//       const [hours, minutes] = timeString.split(':').map(Number);
+//       console.log(`Extracted hours: ${hours}, minutes: ${minutes}`);
+      
+//       // Create new date with the specified time
+//       const combinedDate = new Date(baseDate);
+//       combinedDate.setHours(hours, minutes, 0, 0);
+//       console.log(`Combined date result: ${combinedDate}`);
+      
+//       return combinedDate;
+//     };
+
+//     // Process firstEntry and lastExit
+//     let entry = null;
+//     let exit = null;
+
+//     console.log('Processing firstEntry value...');
+//     if (firstEntry) {
+//       console.log(`firstEntry provided: ${firstEntry}, type: ${typeof firstEntry}`);
+
+//       if (isTimeFormat(firstEntry)) {
+//         // Handle time-only format (HH:MM)
+//         console.log('firstEntry is in time-only format (HH:MM)');
+//         if (!date) {
+//           console.log('Date is required but missing for time-only format');
+//           return errorRresponse(res, 400, "Date is required when using time-only format");
+//         }
+//         entry = combineDateTime(date, firstEntry);
+//         console.log(`Converted firstEntry to datetime: ${entry}`);
+//       } else {
+//         // Handle full datetime format (backward compatibility)
+//         console.log('firstEntry appears to be in full datetime format');
+//         entry = new Date(firstEntry);
+//         console.log(`Parsed firstEntry as date object: ${entry}, valid date: ${!isNaN(entry.getTime())}`);
+//       }
+//     } else {
+//       entry = record.firstEntry;
+//       console.log(`No firstEntry provided, using existing value: ${entry}`);
+//     }
+
+//     console.log('Processing lastExit value...');
+//     if (lastExit) {
+//       console.log(`lastExit provided: ${lastExit}, type: ${typeof lastExit}`);
+      
+//       if (isTimeFormat(lastExit)) {
+//         // Handle time-only format (HH:MM)
+//         console.log('lastExit is in time-only format (HH:MM)');
+//         if (!date) {
+//           console.log('Date is required but missing for time-only format');
+//           return errorRresponse(res, 400, "Date is required when using time-only format");
+//         }
+//         exit = combineDateTime(date, lastExit);
+//         console.log(`Converted lastExit to datetime: ${exit}`);
+//       } else {
+//         // Handle full datetime format (backward compatibility)
+//         console.log('lastExit appears to be in full datetime format');
+//         exit = new Date(lastExit);
+//         console.log(`Parsed lastExit as date object: ${exit}, valid date: ${!isNaN(exit.getTime())}`);
+//       }
+//     } else {
+//       exit = record.lastExit;
+//       console.log(`No lastExit provided, using existing value: ${exit}`);
+//     }
+
+//     // Handle overnight scenario: if exit time is earlier than entry time, add 1 day to exit
+//     if (entry && exit) {
+//       console.log(`Checking overnight scenario - entry: ${entry}, exit: ${exit}`);
+//       console.log(`Time comparison: exit < entry = ${exit < entry}`);
+      
+//       if (exit < entry) {
+//         console.log("Detected overnight work: lastExit is earlier than firstEntry, adding 1 day to lastExit");
+//         const originalExit = new Date(exit);
+//         exit.setDate(exit.getDate() + 1);
+//         console.log(`Updated lastExit from ${originalExit} to ${exit}`);
+//       }
+//     }
+
+//     const shiftStartTime = record.expectedCheckinTime;
+//     const shiftEndTime = record.expectedCheckoutTime;
+//     console.log(`Shift times - start: ${shiftStartTime}, end: ${shiftEndTime}`);
+
+//     // Only recalculate if we have all required data
+//     if (entry && exit && shiftStartTime && shiftEndTime) {
+//       console.log('All required data available, calculating overtime details...');
+//       console.log(`Parameters for calculation:
+//         - Entry: ${entry}
+//         - Exit: ${exit}
+//         - Shift start: ${shiftStartTime}
+//         - Shift end: ${shiftEndTime}`);
+      
+//       const overtimeDetails = calculateOvertimeDetails(
+//         entry,
+//         exit,
+//         shiftStartTime,
+//         shiftEndTime
+//       );
+//       console.log('Calculated overtime details:', overtimeDetails);
+      
+//       updateData.firstEntry = entry;
+//       updateData.lastExit = exit;
+//       updateData.overtTimeStart = overtimeDetails.overtimeStart;
+//       updateData.overtTimeEnd = overtimeDetails.overtimeEnd;
+//       updateData.overTimeMinutes = overtimeDetails.overtimeMinutes;
+//       updateData.earlyOvertimeMinutes = overtimeDetails.earlyOvertimeMinutes;
+//       updateData.lateOvertimeMinutes = overtimeDetails.lateOvertimeMinutes;
+//       updateData.isOverTime = overtimeDetails.isOverTime;
+      
+//       console.log('Updated updateData with overtime calculations:', updateData);
+//     } else {
+//       console.log('Missing required data for overtime calculation:');
+//       console.log(`- Entry: ${!!entry}`);
+//       console.log(`- Exit: ${!!exit}`);
+//       console.log(`- Shift start: ${!!shiftStartTime}`);
+//       console.log(`- Shift end: ${!!shiftEndTime}`);
+//     }
+
+//     // Update approval status if provided
+//     if (approvalStatus !== undefined) {
+//       console.log(`Processing approval status: ${approvalStatus}`);
+      
+//       if (approvalStatus === "Approved") {
+//         console.log('Setting status to Approved');
+//         updateData.overTimeStatus = "Approved";
+//         updateData.approvedOverTime = true;
+//       } else if (approvalStatus === "Reject" || approvalStatus === "Rejected") {
+//         console.log('Setting status to Rejected');
+//         updateData.overTimeStatus = "Reject";
+//         updateData.approvedOverTime = false;
+//       } else if (approvalStatus === "Pending") {
+//         console.log('Setting status to Pending');
+//         updateData.overTimeStatus = "Pending";
+//         updateData.approvedOverTime = false;
+//       } else {
+//         console.log(`Unrecognized approval status: ${approvalStatus}`);
+//       }
+//     } else {
+//       console.log('No approval status provided, keeping existing status');
+//     }
+
+//     // Update remarks to reflect the changes
+//     let remarks = record.remarks || "";
+//     remarks += ". Overtime details manually updated";
+//     if (approvalStatus) {
+//       remarks += `. Overtime status changed to ${approvalStatus}`;
+//     }
+//     updateData.remarks = remarks;
+//     console.log(`Updated remarks: ${remarks}`);
+
+//     console.log('Final updateData object:', JSON.stringify(updateData, null, 2));
+    
+//     // Update the record
+//     console.log(`Updating record with ID: ${id}`);
+//     const updatedRecord = await DailyAttendance.findByIdAndUpdate(
+//       id,
+//       { $set: updateData },
+//       { new: true }
+//     ).populate("employeeId", "name user_defined_code department designation");
+
+//     console.log('Update successful. Updated record:', JSON.stringify(updatedRecord, null, 2));
+//     console.log('========== END: updateOvertimeDetails ==========');
+
+//     return successResponse(
+//       res,
+//       200,
+//       "Overtime details updated successfully",
+//       updatedRecord
+//     );
+//   } catch (error) {
+//     console.error("Error updating overtime details:", error);
+//     console.log('Stack trace:', error.stack);
+//     return errorRresponse(res, 500, "Error updating overtime details", error);
+//   }
+// };
 
 const updateRelaxationRequest = async (req, res) => {
   try {
@@ -1140,7 +1464,7 @@ const updateRelaxationRequest = async (req, res) => {
 
       // Use the new calculateOvertimeDetails function for overtime calculation
       if (record.expectedCheckinTime && record.expectedCheckoutTime) {
-        const overtimeDetails = calculateOvertimeDetails(
+      const overtimeDetails = calculateOvertimeDetails(
           updateData.firstEntry,
           updateData.lastExit,
           record.expectedCheckinTime,
@@ -1151,15 +1475,15 @@ const updateRelaxationRequest = async (req, res) => {
         
         if (updateData.isOverTime) {
           // Apply overtime details
-          updateData.overtTimeStart = overtimeDetails.overtimeStart;
-          updateData.overtTimeEnd = overtimeDetails.overtimeEnd;
-          updateData.overTimeMinutes = overtimeDetails.overtimeMinutes;
-          
+      updateData.overtTimeStart = overtimeDetails.overtimeStart;
+      updateData.overtTimeEnd = overtimeDetails.overtimeEnd;
+      updateData.overTimeMinutes = overtimeDetails.overtimeMinutes;
+      
           // Keep existing status if available, otherwise set to Pending
           if (!record.overTimeStatus || record.overTimeStatus === "Reject") {
             updateData.overTimeStatus = "Pending";
           }
-        } else {
+    } else {
           // Clear overtime fields if there's no overtime
           updateData.overtTimeStart = null;
           updateData.overtTimeEnd = null;
@@ -1201,7 +1525,7 @@ const updateRelaxationRequest = async (req, res) => {
       } else if (minutesDiff > 10) {
         // More than 10 mins late
         updateData.checkoutStatus = "Late";
-      } else {
+    } else {
         updateData.checkoutStatus = "On Time";
       }
     }
@@ -1536,7 +1860,7 @@ const recalculateAttendance = async (req, res) => {
           overTimeMinutes: 0,
           overTimeStatus: null,
           remarks: "Day Off (holiday or scheduled leave). Record recalculated due to schedule change.",
-          isManuallyUpdated: true
+          // isManuallyUpdated: true
         },
         { new: true }
       ).populate("employeeId");
@@ -1610,7 +1934,7 @@ const recalculateAttendance = async (req, res) => {
           overTimeMinutes: 0,
           overTimeStatus: null,
           remarks: "Absent. Record recalculated due to schedule change.",
-          isManuallyUpdated: true
+          // isManuallyUpdated: true
         },
         { new: true }
       ).populate("employeeId");
@@ -1756,7 +2080,7 @@ const recalculateAttendance = async (req, res) => {
       overTimeMinutes: overtimeDetails.overtimeMinutes,
       overTimeStatus: overtimeDetails.isOverTime ? "Pending" : null,
       remarks,
-      isManuallyUpdated: true,
+      // isManuallyUpdated: true,
       relaxationRequest,
       relaxationRequestStatus
     };

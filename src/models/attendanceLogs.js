@@ -24,6 +24,18 @@ const AttendanceLogSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
     index: true
+  },
+  processingError: {
+    type: String,
+    default: null
+  },
+  processingAttempts: {
+    type: Number,
+    default: 0
+  },
+  lastProcessingAttempt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

@@ -494,9 +494,129 @@ const newSyncMachineLogsFromJson = async (machine) => {
   }
 };
 
+// Get logs with processing errors
+const getProcessingErrors = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      perPage = 10,
+      startDate,
+      endDate,
+      userId,
+      deviceId
+    } = req.query;
+
+    const query = {
+      processingError: { $ne: null }
+    };
+
+    // Date range filter
+    if (startDate || endDate) {
+      query.recordTime = {};
+      if (startDate) query.recordTime.$gte = new Date(startDate);
+      if (endDate) {
+        // Set time to end of day for endDate
+        const endOfDay = new Date(endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        query.recordTime.$lte = endOfDay;
+      }
+    }
+
+    // Employee ID filter
+    if (userId) {
+      try {
+        const mongoose = require('mongoose');
+        
+        // If userId is numeric (like "2002"), we need to handle it differently
+        if (!isNaN(userId)) {
+          const Employee = require('../models/employee');
+          const employee = await Employee.findOne({ user_defined_code: userId });
+          
+          if (employee) {
+            query.deviceUserId = employee._id;
+          } else {
+            query.deviceUserId = userId;
+          }
+        } 
+        // If it's a valid ObjectId, use it directly
+        else if (mongoose.Types.ObjectId.isValid(userId)) {
+          query.deviceUserId = mongoose.Types.ObjectId(userId);
+        }
+        // Otherwise, it might be a string identifier
+        else {
+          query.deviceUserId = userId;
+        }
+      } catch (error) {
+        console.error(`Error processing userId filter: ${error.message}`);
+        query.deviceUserId = userId;
+      }
+    }
+
+    // Device ID filter
+    if (deviceId) {
+      query.deviceId = deviceId;
+    }
+
+    // Get total count and paginated results
+    const [records, total] = await Promise.all([
+      AttendanceLog.find(query)
+        .populate("deviceUserId", "name user_defined_code department designation")
+        .sort({ lastProcessingAttempt: -1 })
+        .skip((page - 1) * perPage)
+        .limit(perPage),
+      AttendanceLog.countDocuments(query),
+    ]);
+
+    return successResponse(res, 200, "Processing errors fetched successfully", {
+      data: records,
+      meta: {
+        total,
+        page: Number(page),
+        perPage: Number(perPage),
+        totalPages: Math.ceil(total / perPage),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching processing errors:", error);
+    return errorRresponse(res, 500, "Error fetching processing errors", error);
+  }
+};
+
+// Reset processing error for specific logs
+const resetProcessingError = async (req, res) => {
+  try {
+    const { logIds } = req.body;
+    
+    if (!logIds || !Array.isArray(logIds) || logIds.length === 0) {
+      return errorRresponse(res, 400, "Invalid request: logIds array is required");
+    }
+    
+    // Reset processing error and attempts
+    const result = await AttendanceLog.updateMany(
+      { _id: { $in: logIds } },
+      { 
+        $set: { 
+          processingError: null,
+          isProcessed: false
+        }
+      }
+    );
+    
+    return successResponse(res, 200, "Processing errors reset successfully", {
+      modifiedCount: result.modifiedCount,
+      matchedCount: result.matchedCount
+    });
+  } catch (error) {
+    console.error("Error resetting processing errors:", error);
+    return errorRresponse(res, 500, "Error resetting processing errors", error);
+  }
+};
+
 module.exports = {
   getRecords,
   forceSyncRecords,
   syncAttendanceLogs,
-  getMachinesInfo
+  getMachinesInfo,
+  getProcessingErrors,
+  resetProcessingError
 };
