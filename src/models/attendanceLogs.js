@@ -6,7 +6,7 @@ const AttendanceLogSchema = new mongoose.Schema({
     ref: "Employee",
     required: true,
     index: true
-  },
+  }, 
   recordTime: {
     type: Date,
     required: true,
