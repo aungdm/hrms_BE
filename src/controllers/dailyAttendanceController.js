@@ -98,7 +98,7 @@ const getRecords = async (req, res) => {
     const [records, total] = await Promise.all([
       DailyAttendance.find(query)
         .populate("employeeId")
-        .sort({ date: -1 })
+        .sort({ date: 1 })
         .skip((page - 1) * perPage)
         .limit(perPage),
       DailyAttendance.countDocuments(query),
