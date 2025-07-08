@@ -5,6 +5,9 @@ const Employee = require("../models/employee");
 const Scheduling = require("../models/scheduling");
 const WorkSchedule = require("../models/workSchedule");
 
+const PAKISTAN_TIMEZONE_OFFSET = 5;
+
+
 // Generate a monthly schedule for an employee
 const generateEmployeeSchedule = async (req, res) => {
   try {
@@ -335,12 +338,12 @@ const updateEmployeeScheduleDay = async (req, res) => {
           const dateObj = moment(date);
           const startDate = dateObj
             .clone()
-            .hour(startHour)
+            .hour(startHour - PAKISTAN_TIMEZONE_OFFSET)
             .minute(startMinute)
             .second(0);
           const endDate = dateObj
             .clone()
-            .hour(endHour)
+            .hour(endHour - PAKISTAN_TIMEZONE_OFFSET)
             .minute(endMinute)
             .second(0);
           console.log('Created start and end date objects:', { startDate: startDate.toDate(), endDate: endDate.toDate() }); // Log date objects

@@ -2056,8 +2056,8 @@ const recalculateAttendance = async (req, res) => {
     let relaxationRequest = false;
     let relaxationRequestStatus = null;
     if (lateArrival > 1 || earlyDeparture > 0) {
-      relaxationRequest = record.relaxationRequest || false;
-      relaxationRequestStatus = record.relaxationRequestStatus || null;
+      relaxationRequest = true;
+      relaxationRequestStatus = "Pending";
       console.log(`🔄 Keeping existing relaxation request: ${relaxationRequest}, status: ${relaxationRequestStatus}`);
     }
 
@@ -2084,7 +2084,7 @@ const recalculateAttendance = async (req, res) => {
       relaxationRequest,
       relaxationRequestStatus
     };
-    console.log(`📝 Update data prepared for database update`);
+    console.log(`📝 Update data prepared for database update` , updateData);
 
     // Update the record with the recalculated values
     console.log(`🔄 Updating attendance record in database...`);
