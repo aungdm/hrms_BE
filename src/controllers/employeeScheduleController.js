@@ -335,15 +335,38 @@ const updateEmployeeScheduleDay = async (req, res) => {
           console.log(`Parsed times: startHour=${startHour}, startMinute=${startMinute}, endHour=${endHour}, endMinute=${endMinute}`); // Log parsed times
 
           // Create the date objects for start and end times
+          const adjustHourForTimezone = (hour, timezoneOffset) => {
+            let adjustedHour = hour - timezoneOffset;
+            
+            // Handle negative hours (wrap to previous day)
+            if (adjustedHour < 0) {
+              adjustedHour = 24 + adjustedHour;
+            }
+            // Handle hours >= 24 (wrap to next day)  
+            else if (adjustedHour >= 24) {
+              adjustedHour = adjustedHour - 24;
+            }
+            
+            return adjustedHour;
+          };
+          
+          const adjustedStartHour = adjustHourForTimezone(startHour, PAKISTAN_TIMEZONE_OFFSET);
+          const adjustedEndHour = adjustHourForTimezone(endHour, PAKISTAN_TIMEZONE_OFFSET);
+          console.log(`Original hours: start=${startHour}, end=${endHour}`);
+          console.log(`Adjusted hours: start=${adjustedStartHour}, end=${adjustedEndHour}`);
+          
+
+
           const dateObj = moment(date);
+
           const startDate = dateObj
             .clone()
-            .hour(startHour - PAKISTAN_TIMEZONE_OFFSET)
+            .hour(adjustedStartHour)
             .minute(startMinute)
             .second(0);
           const endDate = dateObj
             .clone()
-            .hour(endHour - PAKISTAN_TIMEZONE_OFFSET)
+            .hour(adjustedEndHour)
             .minute(endMinute)
             .second(0);
           console.log('Created start and end date objects:', { startDate: startDate.toDate(), endDate: endDate.toDate() }); // Log date objects
@@ -791,6 +814,7 @@ const updateMultipleEmployeeScheduleDays = async (req, res) => {
             const workSchedule = await WorkSchedule.findById(time_slot_id);
 
             if (workSchedule) {
+              
               // Parse the shiftStart and shiftEnd from the work schedule
               const [startHour, startMinute] = workSchedule.shiftStart
                 .split(":")
@@ -799,11 +823,32 @@ const updateMultipleEmployeeScheduleDays = async (req, res) => {
                 .split(":")
                 .map(Number);
 
+                const adjustHourForTimezone = (hour, timezoneOffset) => {
+                  let adjustedHour = hour - timezoneOffset;
+                  
+                  // Handle negative hours (wrap to previous day)
+                  if (adjustedHour < 0) {
+                    adjustedHour = 24 + adjustedHour;
+                  }
+                  // Handle hours >= 24 (wrap to next day)  
+                  else if (adjustedHour >= 24) {
+                    adjustedHour = adjustedHour - 24;
+                  }
+                  
+                  return adjustedHour;
+                };
+                
+                const adjustedStartHour = adjustHourForTimezone(startHour, PAKISTAN_TIMEZONE_OFFSET);
+                const adjustedEndHour = adjustHourForTimezone(endHour, PAKISTAN_TIMEZONE_OFFSET);
+                console.log(`Original hours: start=${startHour}, end=${endHour}`);
+                console.log(`Adjusted hours: start=${adjustedStartHour}, end=${adjustedEndHour}`);
+                
+
               // Create the date objects for start and end times
               const dateObj = moment(date);
               const startDate = dateObj
                 .clone()
-                .hour(startHour)
+                .hour(adjustedStartHour)
                 .minute(startMinute)
                 .second(0);
               const endDate = dateObj
