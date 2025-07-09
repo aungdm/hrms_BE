@@ -55,12 +55,6 @@ exports.generateHourlyPayroll = async (req, res) => {
         date: { $gte: new Date(startDate), $lte: new Date(endDate) }
       });
       
-      // Get fine records for this employee within date range
-      const fineRecords = await OtherDeduction.find({
-        employee_id: employee._id,
-        date: { $gte: new Date(startDate), $lte: new Date(endDate) }
-      });
-      
       // Get other incentives for this employee within date range that are not processed yet
       const incentiveRecords = await OtherIncentive.find({
         employeeId: employee._id,
@@ -113,13 +107,12 @@ exports.generateHourlyPayroll = async (req, res) => {
         perHourRate,
         payableHours,
         lateFines,
-        otherDeductions,
         absentDays,
         absentDeductions,
         overtimePay,
         netSalary,
         dailyCalculations
-      } = calculateHourlySalary(employee, attendanceRecords, fineRecords);
+      } = calculateHourlySalary(employee, attendanceRecords);
       
       // Calculate total incentives
       let totalIncentives = 0;
@@ -212,7 +205,7 @@ exports.generateHourlyPayroll = async (req, res) => {
         perHourRate,
         payableHours,
         lateFines,
-        otherDeductions,
+        otherDeductions: totalOtherDeductions,
         otherDeductionDetails,
         absentDays,
         absentDeductions,
@@ -570,12 +563,6 @@ exports.generateMonthlyPayroll = async (req, res) => {
         date: { $gte: new Date(startDate), $lte: new Date(endDate) }
       });
       
-      // Get fine records for this employee within date range
-      const fineRecords = await OtherDeduction.find({
-        employee_id: employee._id,
-        date: { $gte: new Date(startDate), $lte: new Date(endDate) }
-      });
-      
       // Get other incentives for this employee within date range that are not processed yet
       const incentiveRecords = await OtherIncentive.find({
         employeeId: employee._id,
@@ -622,10 +609,9 @@ exports.generateMonthlyPayroll = async (req, res) => {
         grossSalary,
         absentDays,
         absentDeductions,
-        otherDeductions,
         netSalary,
         dailyCalculations
-      } = calculateMonthlySalary(employee, attendanceRecords, fineRecords);
+      } = calculateMonthlySalary(employee, attendanceRecords);
       
       // Calculate total incentives
       let totalIncentives = 0;
@@ -716,15 +702,14 @@ exports.generateMonthlyPayroll = async (req, res) => {
         grossSalary,
         absentDays,
         absentDeductions,
-        otherDeductions,
+        otherDeductions: totalOtherDeductions,
+        otherDeductionDetails,
         otherIncentives: totalIncentives,
         incentiveDetails,
         arrears: totalArrears,
         arrearsDetails,
         fineDeductions: totalFineDeductions,
         fineDeductionDetails,
-        otherDeductions: totalOtherDeductions,
-        otherDeductionDetails,
         advancedSalary: totalAdvancedSalary,
         advancedSalaryDetails,
         netSalary: finalNetSalary,
@@ -1019,11 +1004,10 @@ exports.getMonthlyPayslip = async (req, res) => {
 // ---------- Helper Functions ----------
 
 // Helper function to calculate hourly salary
-function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
+function calculateHourlySalary(employee, attendanceRecords) {
   // Use after_probation_gross_salary as the base salary
   let grossSalary = parseFloat(employee.after_probation_gross_salary) || 0;
   let lateFines = 0;
-  let otherDeductions = 0;
   let overtimePay = 0;
   let absentDeductions = 0;
   
@@ -1173,13 +1157,12 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     const dailyRegularPay = dailyPayableMinutes * perMinuteRate;
     
     // Late arrival fines (only for working days)
-    if (record.lateArrival && (status === 'Present' || status === 'Late')) {
+    if (record.lateArrival) {
       const lateMinutes = record.lateArrival;
       
       // Get the position of this late arrival in the overall count
       const currentLatePosition = attendanceRecords
-        .filter(r => r.date <= record.date && r.lateArrival > 0 && 
-                (r.status === 'Present' || r.status === 'Late'))
+        .filter(r => r.date <= record.date && r.lateArrival > 0 )
         .length;
       
       // Only apply fine if this is the 4th or later late arrival
@@ -1288,24 +1271,9 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     }
   }
   
-  // Add other fines/deductions from monthly deductions
-  fineRecords.forEach(fine => {
-    otherDeductions += fine.amount || 0;
-    
-    // Add the fine to daily calculations for transparency
-    dailyCalculations.push({
-      date: fine.date,
-      status: 'Fine/Deduction',
-      isDayDeducted: false,
-      dailyDeduction: 0,
-      otherDeduction: fine.amount || 0,
-      notes: `Additional monthly deduction: ₹${fine.amount || 0} | Reason: ${fine.reason || 'Other deduction'}`
-    });
-  });
-  
   // Calculate salary components
   const actualGrossSalary = payableHours * perHourRate;
-  const netSalary = actualGrossSalary - lateFines - otherDeductions - absentDeductions + overtimePay;
+  const netSalary = actualGrossSalary - lateFines - absentDeductions;
   
   return {
     grossSalary: grossSalary, // Monthly base salary for reference
@@ -1313,7 +1281,6 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
     perHourRate: perHourRate,
     payableHours,
     lateFines,
-    otherDeductions,
     absentDays,
     absentDeductions,
     overtimePay,
@@ -1323,11 +1290,10 @@ function calculateHourlySalary(employee, attendanceRecords, fineRecords) {
 }
 
 // Helper function to calculate monthly salary
-function calculateMonthlySalary(employee, attendanceRecords, fineRecords) {
+function calculateMonthlySalary(employee, attendanceRecords) {
   // Use after_probation_gross_salary as the base salary
   let grossSalary = parseFloat(employee.after_probation_gross_salary) || 0;
   let absentDeductions = 0;
-  let otherDeductions = 0;
   
   // Calculate per day salary for absence deductions
   const workingDaysInMonth = 26; // As per specifications
@@ -1359,29 +1325,13 @@ function calculateMonthlySalary(employee, attendanceRecords, fineRecords) {
     });
   });
   
-  // Add other fines/deductions from monthly deductions
-  fineRecords.forEach(fine => {
-    otherDeductions += fine.amount || 0;
-    
-    // Add the fine to daily calculations for transparency
-    dailyCalculations.push({
-      date: fine.date,
-      status: 'Fine/Deduction',
-      isDayDeducted: false,
-      dailyDeduction: 0,
-      otherDeduction: fine.amount || 0,
-      notes: `Additional monthly deduction: ₹${fine.amount || 0} | Reason: ${fine.reason || 'Other deduction'}`
-    });
-  });
-  
-  // Final salary = monthly salary − absent day deductions − additional fines/deductions
-  const netSalary = grossSalary - absentDeductions - otherDeductions;
+  // Final salary = monthly salary − absent day deductions
+  const netSalary = grossSalary - absentDeductions;
   
   return {
     grossSalary,
     absentDays,
     absentDeductions,
-    otherDeductions,
     netSalary,
     dailyCalculations
   };
