@@ -172,6 +172,7 @@ exports.generateHourlyPayroll = async (req, res) => {
           description: otherDeduction.description
         });
       }
+      console.log({totalOtherDeductions}, "hourly totalOtherDeductions")
       
       // Calculate total advanced salary deductions
       let totalAdvancedSalary = 0;
@@ -1296,7 +1297,7 @@ function calculateMonthlySalary(employee, attendanceRecords) {
   let absentDeductions = 0;
   
   // Calculate per day salary for absence deductions
-  const workingDaysInMonth = 26; // As per specifications
+  const workingDaysInMonth = 30; // As per specifications
   const perDayDeduction = grossSalary / workingDaysInMonth;
   
   // Count absent days and calculate deductions
