@@ -53,10 +53,10 @@ const EmployeeSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
-    probation: {
-      type: Boolean,
-      default: false,
-    },
+    // probation: {
+    //   type: Boolean,
+    //   default: false,
+    // },
     location: {
       type: String,
       required: true,
@@ -100,10 +100,10 @@ const EmployeeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    probation_salary: {
-      type: String,
-      required: true,
-    },
+    // probation_salary: {
+    //   type: String,
+    //   required: true,
+    // },
     after_probation_gross_salary: {
       type: String,
       required: true,
@@ -122,7 +122,7 @@ const EmployeeSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: false,
       minlength: 6,
     },
     role: {

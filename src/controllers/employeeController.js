@@ -17,7 +17,7 @@ const createRecord = async (req, res) => {
       gender,
       user_defined_code,
       joining_date,
-      probation,
+      // probation,
       location,
       department,
       designation,
@@ -28,7 +28,7 @@ const createRecord = async (req, res) => {
       payroll_type,
       payment_method,
       currency,
-      probation_salary,
+      // probation_salary,
       after_probation_gross_salary,
       description,
       employment_type,
@@ -41,6 +41,11 @@ const createRecord = async (req, res) => {
       _id, // Extract custom _id if provided
     } = req.body;
     console.log(req.body, "cre  ateRecord");
+
+    // Validate password is provided during creation
+    if (!password || password.trim() === "") {
+      return errorRresponse(res, 400, "Password is required for employee creation");
+    }
 
     const isExist = await Employee.findOne({
       user_defined_code,
@@ -65,7 +70,7 @@ const createRecord = async (req, res) => {
       gender,
       user_defined_code,
       joining_date,
-      probation,
+      // probation,
       location,
       department,
       designation,
@@ -76,7 +81,7 @@ const createRecord = async (req, res) => {
       payroll_type,
       payment_method,
       currency,
-      probation_salary,
+      // probation_salary,
       after_probation_gross_salary,
       description,
       employment_type,
@@ -123,7 +128,7 @@ const updateRecord = async (req, res) => {
       gender,
       user_defined_code,
       joining_date,
-      probation,
+      // probation,
       location,
       department,
       designation,
@@ -134,12 +139,12 @@ const updateRecord = async (req, res) => {
       payroll_type,
       payment_method,
       currency,
-      probation_salary,
+      // probation_salary,
       after_probation_gross_salary,
       description,
       employment_type,
       email_username,
-      // password,
+      password,
       role,
       timeSlot,
       leaveTypes,
@@ -153,11 +158,6 @@ const updateRecord = async (req, res) => {
       return errorRresponse(res, 404, "Employee Not Found");
     }
 
-    // let hashedPassword = existing.password;
-    // if (password) {
-    //   hashedPassword = await bcrypt.hash(password, 10);
-    // }
-
     // Create update object with all fields
     const updateData = {
       name,
@@ -170,7 +170,7 @@ const updateRecord = async (req, res) => {
       gender,
       user_defined_code,
       joining_date,
-      probation,
+      // probation,
       location,
       department,
       designation,
@@ -181,17 +181,23 @@ const updateRecord = async (req, res) => {
       payroll_type,
       payment_method,
       currency,
-      probation_salary,
+      // probation_salary,
       after_probation_gross_salary,
       description,
       employment_type,
       email_username,
-      // password: hashedPassword,
       role,
       timeSlot,
       leaveTypes,
       workDays,
     };
+
+    // Only hash and update password if it's provided
+    if (password && password.trim() !== "") {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      updateData.password = hashedPassword;
+    }
+
     console.log({ updateData }, "updateRecord");
     const data = await Employee.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -218,6 +224,18 @@ const getRecords = async (req, res) => {
       sortOrder = "Desc",
       sortField = "createdAt",
       search = "",
+      department = "",
+      designation = "",
+      employeeType = "",
+      payrollType = "",
+      location = "",
+      joiningDateFrom = "",
+      joiningDateTo = "",
+      salaryFrom = "",
+      salaryTo = "",
+      status = "",
+      gender = "",
+      nationality = "",
     } = req.query;
 
     page = parseInt(page);
@@ -228,37 +246,130 @@ const getRecords = async (req, res) => {
       [sortField]: sortOrder === "Desc" ? -1 : 1,
     };
 
-    const searchQuery = search
-      ? {
-          $or: (() => {
-            const conditions = [
-              { name: { $regex: search, $options: "i" } }
-            ];
-            if (!isNaN(parseFloat(search)) && isFinite(search)) {
-              conditions.push({ user_defined_code: parseFloat(search) });
-            }
-            return conditions;
-          })()
-        }
-      : {};
+    // Build search query with all filters
+    let searchQuery = {};
+    const andConditions = [];
+
+    // Text search across multiple fields (only if search term is provided)
+    if (search) {
+      const searchConditions = [
+        { name: { $regex: search, $options: "i" } },
+        { official_email: { $regex: search, $options: "i" } },
+        { email_username: { $regex: search, $options: "i" } },
+        { department: { $regex: search, $options: "i" } },
+        { designation: { $regex: search, $options: "i" } },
+        { location: { $regex: search, $options: "i" } },
+      ];
+
+      // If search is a number, also search by user_defined_code
+      if (!isNaN(parseFloat(search)) && isFinite(search)) {
+        searchConditions.push({ user_defined_code: parseFloat(search) });
+      }
+
+      andConditions.push({ $or: searchConditions });
+    }
+
+    // Department filter
+    if (department) {
+      andConditions.push({ department: { $regex: department, $options: "i" } });
+    }
+
+    // Designation filter
+    if (designation) {
+      andConditions.push({ designation: { $regex: designation, $options: "i" } });
+    }
+
+    // Employee Type filter
+    if (employeeType) {
+      andConditions.push({ employee_type: { $regex: employeeType, $options: "i" } });
+    }
+
+    // Payroll Type filter
+    if (payrollType) {
+      andConditions.push({ payroll_type: { $regex: payrollType, $options: "i" } });
+    }
+
+    // Location filter
+    if (location) {
+      andConditions.push({ location: { $regex: location, $options: "i" } });
+    }
+
+    // Gender filter
+    if (gender) {
+      andConditions.push({ gender: { $regex: gender, $options: "i" } });
+    }
+
+    // Nationality filter
+    if (nationality) {
+      andConditions.push({ nationality: { $regex: nationality, $options: "i" } });
+    }
+
+    // Status filter (you might need to add a status field to your schema)
+    if (status) {
+      andConditions.push({ status: { $regex: status, $options: "i" } });
+    }
+
+    // Joining date range filter
+    if (joiningDateFrom || joiningDateTo) {
+      const dateCondition = {};
+      if (joiningDateFrom) {
+        dateCondition.$gte = new Date(joiningDateFrom);
+      }
+      if (joiningDateTo) {
+        dateCondition.$lte = new Date(joiningDateTo);
+      }
+      andConditions.push({ joining_date: dateCondition });
+    }
+
+    // Salary range filter (using after_probation_gross_salary)
+    if (salaryFrom || salaryTo) {
+      const salaryCondition = {};
+      if (salaryFrom) {
+        salaryCondition.$gte = parseFloat(salaryFrom);
+      }
+      if (salaryTo) {
+        salaryCondition.$lte = parseFloat(salaryTo);
+      }
+      andConditions.push({ after_probation_gross_salary: salaryCondition });
+    }
+
+    // Combine all conditions with $and if there are any conditions
+    if (andConditions.length > 0) {
+      searchQuery.$and = andConditions;
+    }
+
     const skips = (page - 1) * perPage;
 
     console.log(
       { searchQuery },
       { page, perPage, sortOrder, sortField, skips, sortOptions }
     );
+
+    // Execute query with filters
     const data = await Employee.find(searchQuery)
       .sort(sortOptions)
       .skip(skips)
       .limit(perPage);
 
-    const totalRecords = await Employee.countDocuments();
+    // Get total count with filters applied
+    const totalRecords = await Employee.countDocuments(searchQuery);
+    
+    // Get total count without filters for comparison
+    const allRecords = await Employee.countDocuments();
+
     const dataList = data.map((item) => item._id);
     // console.log({ dataList });
 
     return successResponse(res, 200, "Data Fetched Successfully", {
       data: data,
-      meta: { total: totalRecords },
+      meta: { 
+        total: totalRecords,
+        totalWithoutFilters: allRecords,
+        filteredCount: totalRecords,
+        page: page,
+        perPage: perPage,
+        totalPages: Math.ceil(totalRecords / perPage)
+      },
     });
   } catch (error) {
     console.error("Error fetching data:", error);

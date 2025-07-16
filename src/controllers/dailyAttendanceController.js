@@ -83,8 +83,8 @@ const getRecords = async (req, res) => {
 
     if (startDate || endDate) {
       query.date = {};
-      if (startDate) query.date.$gte = new Date(startDate);
-      if (endDate) query.date.$lte = new Date(endDate);
+      if (startDate) query.date.$gte = moment(startDate).startOf('day').toDate();
+      if (endDate) query.date.$lte = moment(endDate).endOf('day').toDate();
     }
 
     if (employeeId) query.employeeId = employeeId;
@@ -161,8 +161,8 @@ const getStatistics = async (req, res) => {
 
     const query = {
       date: {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
+        $gte: moment(startDate).startOf('day').toDate(),
+        $lte: moment(endDate).endOf('day').toDate(),
       },
     };
 
@@ -1723,8 +1723,8 @@ const getRelaxationRequestStats = async (req, res) => {
 
         if (startDate || endDate) {
             query.date = {};
-            if (startDate) query.date.$gte = new Date(startDate);
-            if (endDate) query.date.$lte = new Date(endDate);
+            if (startDate) query.date.$gte = moment(startDate).startOf('day').toDate();
+            if (endDate) query.date.$lte = moment(endDate).endOf('day').toDate();
         }
 
         if (employeeId) query.employeeId = employeeId;

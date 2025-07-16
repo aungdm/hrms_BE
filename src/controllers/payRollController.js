@@ -225,43 +225,43 @@ exports.generateHourlyPayroll = async (req, res) => {
       });
       
       // Mark all processed incentives as processed
-      if (incentiveRecords.length > 0) {
-        await OtherIncentive.updateMany(
-          { _id: { $in: incentiveRecords.map(inc => inc._id) } },
-          { processed: true }
-        );
-      }
+      // if (incentiveRecords.length > 0) {
+      //   await OtherIncentive.updateMany(
+      //     { _id: { $in: incentiveRecords.map(inc => inc._id) } },
+      //     { processed: true }
+      //   );
+      // }
       
-      // Mark all processed arrears as processed
-      if (arrearsRecords.length > 0) {
-        await Arrears.updateMany(
-          { _id: { $in: arrearsRecords.map(arr => arr._id) } },
-          { processed: true }
-        );
-      }
+      // // Mark all processed arrears as processed
+      // if (arrearsRecords.length > 0) {
+      //   await Arrears.updateMany(
+      //     { _id: { $in: arrearsRecords.map(arr => arr._id) } },
+      //     { processed: true }
+      //   );
+      // }
       
-      // Mark all processed fine deductions as processed
-      if (fineDeductionRecords.length > 0) {
-          await FineDeduction.updateMany(
-            { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
-            { processed: true }
-          );
-        }
+      // // Mark all processed fine deductions as processed
+      // if (fineDeductionRecords.length > 0) {
+      //     await FineDeduction.updateMany(
+      //       { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
+      //       { processed: true }
+      //     );
+      //   }
 
-        if (otherDeductionRecords.length > 0) {
-          await OtherDeduction.updateMany(
-            { _id: { $in: otherDeductionRecords.map(other => other._id) } },
-            { processed: true }
-          );
-        }
+      //   if (otherDeductionRecords.length > 0) {
+      //     await OtherDeduction.updateMany(
+      //       { _id: { $in: otherDeductionRecords.map(other => other._id) } },
+      //       { processed: true }
+      //     );
+      //   }
       
-      // Mark all processed advanced salaries as processed
-      if (advancedSalaryRecords.length > 0) {
-        await AdvancedSalary.updateMany(
-          { _id: { $in: advancedSalaryRecords.map(adv => adv._id) } },
-          { processed: true }
-        );
-      }
+      // // Mark all processed advanced salaries as processed
+      // if (advancedSalaryRecords.length > 0) {
+      //   await AdvancedSalary.updateMany(
+      //     { _id: { $in: advancedSalaryRecords.map(adv => adv._id) } },
+      //     { processed: true }
+      //   );
+      // }
       
       payrolls.push(payroll);
     }
@@ -719,44 +719,44 @@ exports.generateMonthlyPayroll = async (req, res) => {
       });
       
       // Mark all processed incentives as processed
-      if (incentiveRecords.length > 0) {
-        await OtherIncentive.updateMany(
-          { _id: { $in: incentiveRecords.map(inc => inc._id) } },
-          { processed: true }
-        );
-      }
+      // if (incentiveRecords.length > 0) {
+      //   await OtherIncentive.updateMany(
+      //     { _id: { $in: incentiveRecords.map(inc => inc._id) } },
+      //     { processed: true }
+      //   );
+      // }
       
-      // Mark all processed arrears as processed
-      if (arrearsRecords.length > 0) {
-        await Arrears.updateMany(
-          { _id: { $in: arrearsRecords.map(arr => arr._id) } },
-          { processed: true }
-        );
-      }
+      // // Mark all processed arrears as processed
+      // if (arrearsRecords.length > 0) {
+      //   await Arrears.updateMany(
+      //     { _id: { $in: arrearsRecords.map(arr => arr._id) } },
+      //     { processed: true }
+      //   );
+      // }
       
-      // Mark all processed fine deductions as processed
-      if (fineDeductionRecords.length > 0) {
-        await FineDeduction.updateMany(
-          { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
-          { processed: true }
-        );
-      }
+      // // Mark all processed fine deductions as processed
+      // if (fineDeductionRecords.length > 0) {
+      //   await FineDeduction.updateMany(
+      //     { _id: { $in: fineDeductionRecords.map(fine => fine._id) } },
+      //     { processed: true }
+      //   );
+      // }
       
-      // Mark all processed other deductions as processed
-      if (otherDeductionRecords.length > 0) {
-        await OtherDeduction.updateMany(
-          { _id: { $in: otherDeductionRecords.map(other => other._id) } },
-          { processed: true }
-        );
-      }
+      // // Mark all processed other deductions as processed
+      // if (otherDeductionRecords.length > 0) {
+      //   await OtherDeduction.updateMany(
+      //     { _id: { $in: otherDeductionRecords.map(other => other._id) } },
+      //     { processed: true }
+      //   );
+      // }
       
-      // Mark all processed advanced salaries as processed
-      if (advancedSalaryRecords.length > 0) {
-        await AdvancedSalary.updateMany(
-          { _id: { $in: advancedSalaryRecords.map(adv => adv._id) } },
-          { processed: true }
-        );
-      }
+      // // Mark all processed advanced salaries as processed
+      // if (advancedSalaryRecords.length > 0) {
+      //   await AdvancedSalary.updateMany(
+      //     { _id: { $in: advancedSalaryRecords.map(adv => adv._id) } },
+      //     { processed: true }
+      //   );
+      // }
       
       payrolls.push(payroll);
     }

@@ -3,6 +3,7 @@ const ZKLib = require("node-zklib");
 const AttendanceLog = require("../models/attendanceLogs");
 const cron = require("node-cron");
 const { getAttendanceMachines } = require("../utils/attendanceMachineConfig");
+const moment = require("moment"); // Added moment.js for date filtering
 
 let isSyncing = false;
 
@@ -187,12 +188,9 @@ const getRecords = async (req, res) => {
     // Date range filter
     if (startDate || endDate) {
       query.recordTime = {};
-      if (startDate) query.recordTime.$gte = new Date(startDate);
+      if (startDate) query.recordTime.$gte = moment(startDate).startOf('day').toDate();
       if (endDate) {
-        // Set time to end of day for endDate
-        const endOfDay = new Date(endDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        query.recordTime.$lte = endOfDay;
+        query.recordTime.$lte = moment(endDate).endOf('day').toDate();
       }
     }
 
@@ -513,12 +511,9 @@ const getProcessingErrors = async (req, res) => {
     // Date range filter
     if (startDate || endDate) {
       query.recordTime = {};
-      if (startDate) query.recordTime.$gte = new Date(startDate);
+      if (startDate) query.recordTime.$gte = moment(startDate).startOf('day').toDate();
       if (endDate) {
-        // Set time to end of day for endDate
-        const endOfDay = new Date(endDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        query.recordTime.$lte = endOfDay;
+        query.recordTime.$lte = moment(endDate).endOf('day').toDate();
       }
     }
 
