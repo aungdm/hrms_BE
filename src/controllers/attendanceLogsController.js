@@ -48,10 +48,13 @@ const syncMachineLogs = async (machine) => {
     try {
       const logs = await zkInstance.getAttendances();
       console.log({ logs }, "logs");
+      console.log(logs.data.length , "logs.data.lwngth");
+
       if (!logs || !logs.data || !Array.isArray(logs.data)) {
         console.log(`No valid data received from ${machine.name} (${machine.ip})`);
         return 0;
       }
+
 
       // Get the latest log timestamp from our database for this device
       const latestLog = await AttendanceLog.findOne(
